@@ -87,6 +87,12 @@ class AtlasCLITest(unittest.TestCase):
         )
         write(
             cls.root,
+            "utils/bom.py",
+            "\ufeffdef bom_symbol():\n"
+            '    return "loaded despite a UTF-8 BOM"\n',
+        )
+        write(
+            cls.root,
             "web/types.ts",
             "export interface User {\n"
             "  id: string;\n"
@@ -231,6 +237,11 @@ class AtlasCLITest(unittest.TestCase):
             "web/store.ts::SessionStore.setUser",
             {s["id"] for s in self.index["files"]["web/store.ts"]["symbols"]},
         )
+
+    def test_python_utf8_bom(self) -> None:
+        bom = self.index["files"]["utils/bom.py"]
+        self.assertEqual(bom["errors"], [])
+        self.assertIn("bom_symbol", {s["name"] for s in bom["symbols"]})
 
     def test_call_edges_resolve(self) -> None:
         call_edges = {

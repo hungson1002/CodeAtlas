@@ -2,6 +2,8 @@
 
 **A map before the read.**
 
+[![CI](https://github.com/hungson1002/CodeAtlas/actions/workflows/ci.yml/badge.svg)](https://github.com/hungson1002/CodeAtlas/actions/workflows/ci.yml)
+
 CodeAtlas is a small, dependency-free codebase atlas for AI coding agents and
 the humans who supervise them. Build an index once, then answer the questions
 that usually cost a dozen file reads: *where is this symbol, what depends on
@@ -18,6 +20,40 @@ CODEATLAS.md            compact map, commit this (~2–4k tokens)
 .code-atlas/index.json  local graph + incremental cache (gitignored)
 .code-atlas/diagram.mmd Mermaid dependency graph
 .code-atlas/atlas.html  self-contained interactive map (no CDN)
+```
+
+## Install
+
+One command, straight from GitHub — no npm publish required:
+
+```bash
+npx skills add hungson1002/CodeAtlas -g
+```
+
+`-g` installs globally to `~/.agents/skills/code-atlas` and links it into the
+agents detected by the [skills CLI](https://github.com/vercel-labs/skills).
+Omit `-g` to install into the current repository instead.
+
+```bash
+# pick agents, or run non-interactively
+npx skills add hungson1002/CodeAtlas -g -a claude-code -a codex -a opencode -a cursor
+npx skills add hungson1002/CodeAtlas -g -y --copy
+
+# inspect before installing
+npx skills add hungson1002/CodeAtlas --list
+```
+
+The `skills` CLI needs Node 22.20+. The atlas engine itself needs Python 3.9+.
+
+Prefer CodeAtlas's own installer (Node 18+, all five agents in one go):
+
+```bash
+npx github:hungson1002/CodeAtlas install
+
+# or keep the CLI around
+npm i -g github:hungson1002/CodeAtlas
+code-atlas install
+code-atlas status
 ```
 
 ## Why
@@ -39,16 +75,20 @@ index.
 
 ## Quick start
 
-Requires Python 3.9+ (stdlib only).
+Requires Python 3.9+ (stdlib only). If you installed the global CodeAtlas CLI,
+use `code-atlas` directly; otherwise call the installed engine.
 
 ```bash
-# from a repository
-python /path/to/code-atlas/scripts/atlas.py init
-python /path/to/code-atlas/scripts/atlas.py map
-python /path/to/code-atlas/scripts/atlas.py where Session
-python /path/to/code-atlas/scripts/atlas.py impact src/requests/api.py
-python /path/to/code-atlas/scripts/atlas.py pack auth --budget 8000
-python /path/to/code-atlas/scripts/atlas.py diagram --open
+# from a repository, with the global CLI
+code-atlas init
+code-atlas map
+code-atlas where Session
+code-atlas impact src/requests/api.py
+code-atlas pack auth --budget 8000
+code-atlas diagram --open
+
+# or call the installed skill
+python ~/.agents/skills/code-atlas/scripts/atlas.py init
 ```
 
 On Windows use `python`; on macOS/Linux `python3` works too. Any command accepts
@@ -106,25 +146,17 @@ Measured on a Windows laptop, Python 3.14, cold build (`--full`):
 Incremental `update` reuses unchanged files and is typically much faster. The
 map for `requests` fits in roughly 1–2k tokens at the default budget.
 
-## Install as a skill
+## Agent install details
 
-The repository is the skill: `SKILL.md` at the root, engine in `scripts/`.
+The repository root is the skill: `SKILL.md` at the root, engine in `scripts/`.
+The skills CLI copies the whole folder, so `scripts/atlas.py` and `references/`
+stay available after install.
 
-```powershell
-# Windows — installs to OpenCode, Claude Code, Codex, Cursor, and ~/.agents
-.\scripts\install.ps1 -Force
-```
-
-```bash
-# macOS / Linux
-./scripts/install.sh --force
-```
-
-Default targets:
+Default global destinations:
 
 | Agent | Path |
 |---|---|
-| OpenCode (global) | `~/.config/opencode/skills/code-atlas` |
+| OpenCode | `~/.config/opencode/skills/code-atlas` |
 | Claude Code | `~/.claude/skills/code-atlas` |
 | Codex CLI | `~/.codex/skills/code-atlas` |
 | Cursor | `~/.cursor/skills/code-atlas` |
@@ -134,6 +166,33 @@ Project-scoped alternatives are `.opencode/skills/`, `.claude/skills/`,
 `.cursor/skills/`, and `.agents/skills/`. Agents that only read project
 instructions can use the `AGENTS.md` snippet in
 `references/agent-setup.md`.
+
+### From a clone (offline)
+
+```powershell
+# Windows
+.\scripts\install.ps1 -Force
+```
+
+```bash
+# macOS / Linux
+./scripts/install.sh --force
+```
+
+### CodeAtlas installer options
+
+```bash
+npx github:hungson1002/CodeAtlas install --agent claude,codex
+npx github:hungson1002/CodeAtlas install --project --agent claude
+npx github:hungson1002/CodeAtlas install --link --force
+npx github:hungson1002/CodeAtlas status
+npx github:hungson1002/CodeAtlas uninstall
+```
+
+`--link` keeps one canonical copy in `~/.agents/skills/code-atlas` and creates
+junctions/symlinks for the other agents. `--force` replaces an existing copy.
+The installer never needs npm lifecycle scripts, so it works with npm's
+script-blocking defaults.
 
 ## Configuration
 
@@ -187,12 +246,16 @@ scoping; use an LSP or semantic tool for precise rename/reference operations.
 
 ```bash
 python -m py_compile scripts/atlas.py
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v   # engine
+node --test tests/test_cli.cjs            # installer / npm CLI
+npm test                                  # both
 ```
 
-The test suite builds temporary fixtures and exercises the CLI end to end:
+The engine suite builds temporary fixtures and exercises the CLI end to end:
 indexing, secret exclusion, relative imports, TS class methods, `where`,
-`impact`, `path`, `pack`, `diagram`, and stale → update → fresh recovery.
+`impact`, `path`, `pack`, `diagram`, and stale → update → fresh recovery. The
+Node suite covers install, update, link, project scope, status, uninstall, and
+Python passthrough.
 
 ## License
 

@@ -784,7 +784,9 @@ function statusCommand(argv) {
   }
 
   const targets = [];
-  if (values.project) {
+  if ((values.target || []).length) {
+    targets.push(...customTargets(values));
+  } else if (values.project) {
     targets.push(...projectTargets(values));
   } else {
     targets.push(...globalTargets(values));
@@ -798,9 +800,6 @@ function statusCommand(argv) {
         targets.push({ agent, scope: 'project', dest });
       }
     }
-  }
-  if ((values.target || []).length) {
-    targets.push(...customTargets(values));
   }
 
   const entries = dedupeTargets(targets).map((target) => {
@@ -1125,12 +1124,14 @@ function main(argv) {
   return 2;
 }
 
-try {
-  const code = main(process.argv.slice(2));
-  if (typeof code === 'number') process.exitCode = code;
-} catch (error) {
-  console.error(`error: ${error.message}`);
-  process.exitCode = 2;
+if (require.main === module) {
+  try {
+    const code = main(process.argv.slice(2));
+    if (typeof code === 'number') process.exitCode = code;
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exitCode = 2;
+  }
 }
 
 module.exports = {
@@ -1139,6 +1140,7 @@ module.exports = {
   findPython,
   inspectTarget,
   installPayload,
+  main,
   parseCommandArgs,
   projectTargets,
   resolveTargets,

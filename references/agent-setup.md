@@ -6,18 +6,41 @@ it to the locations each agent scans.
 
 ## Install
 
-### Windows
-
-```powershell
-.\scripts\install.ps1 -Force
-```
-
-### macOS / Linux
+### One command (skills CLI) — recommended
 
 ```bash
-chmod +x scripts/install.sh
-./scripts/install.sh --force
+npx skills add hungson1002/CodeAtlas -g
 ```
+
+This uses the open [skills CLI](https://github.com/vercel-labs/skills) to fetch
+the public GitHub repository and install it globally. It copies the whole
+repository root, so `scripts/atlas.py` and `references/` arrive with `SKILL.md`.
+Omit `-g` to install into the current repository instead.
+
+```bash
+# non-interactive, selected agents
+npx skills add hungson1002/CodeAtlas -g -y -a claude-code -a codex -a opencode -a cursor
+# copy instead of symlink
+npx skills add hungson1002/CodeAtlas -g --copy
+# inspect first
+npx skills add hungson1002/CodeAtlas --list
+```
+
+The skills CLI requires Node 22.20+. The installed skill needs Python 3.9+.
+
+### CodeAtlas installer
+
+```bash
+npx github:hungson1002/CodeAtlas install
+
+# or keep the CLI around
+npm i -g github:hungson1002/CodeAtlas
+code-atlas install
+```
+
+This installer works on Node 18+, installs all five default destinations in one
+go, and does not rely on npm lifecycle scripts. Use `code-atlas status` or
+`code-atlas uninstall` for lifecycle management.
 
 Default destinations:
 
@@ -51,16 +74,22 @@ Copy this folder so the result is:
 ```
 
 Do not copy `.code-atlas/`, `CODEATLAS.md`, `tests/`, or `__pycache__/` when
-installing; they belong to the source checkout, not the skill.
+installing from a development checkout; they belong to the source checkout, not
+the installed skill. The `skills` CLI copies them harmlessly, but a manual copy
+can stay lean.
 
 ### Installer options
 
 ```powershell
+# Windows source checkout
+.\scripts\install.ps1 -Force
 .\scripts\install.ps1 -Targets "$HOME\.claude\skills" -Force
 .\scripts\install.ps1 -Link          # junction/symlink to the canonical copy
 ```
 
 ```bash
+# macOS / Linux source checkout
+./scripts/install.sh --force
 ./scripts/install.sh --target ~/.claude/skills --force
 ./scripts/install.sh --link
 ```
@@ -70,6 +99,14 @@ existing destinations are skipped. `-Link` / `--link` installs once to
 `~/.agents/skills/code-atlas` and links the other destinations to it; use this
 only if your agents follow symlinks/junctions (Cursor Cloud and some SSH setups
 do not).
+
+The Git/GitHub installer has equivalent flags:
+
+```bash
+npx github:hungson1002/CodeAtlas install --agent claude,codex
+npx github:hungson1002/CodeAtlas install --project --agent claude
+npx github:hungson1002/CodeAtlas install --link --force
+```
 
 ## Agents without native skills
 
@@ -136,6 +173,7 @@ in the repository, or install it into the worker image.
 
 ```bash
 # 1. the skill is where the agent looks
+npx skills list -g
 ls ~/.claude/skills/code-atlas/SKILL.md
 ls ~/.agents/skills/code-atlas/scripts/atlas.py
 
@@ -153,13 +191,36 @@ containing spaces.
 
 ## Updating
 
-Re-run the installer with `-Force` / `--force` after pulling a new CodeAtlas
-version, then restart the agent. If you used `-Link`, only the canonical
-`~/.agents/skills/code-atlas` copy needs updating.
+With the skills CLI:
+
+```bash
+npx skills update code-atlas -g
+# or reinstall from the repository
+npx skills add hungson1002/CodeAtlas -g
+```
+
+With the CodeAtlas installer:
+
+```bash
+npx github:hungson1002/CodeAtlas install --force
+# package CLI equivalent
+npm i -g github:hungson1002/CodeAtlas && code-atlas install --force
+```
+
+From a source checkout, re-run the installer with `-Force` / `--force`. If you
+used `-Link`, only the canonical `~/.agents/skills/code-atlas` copy needs
+updating. Restart the agent after updating.
 
 ## Uninstalling
 
-Remove `<skills-dir>/code-atlas` from each destination. Project-local installs
-should be removed with the repository change that added them. The target
-repository's `.code-atlas/` cache and `CODEATLAS.md` are independent of the
-skill install; remove them from the repo if you no longer want the map.
+```bash
+npx skills remove code-atlas -g
+# or, with the CodeAtlas CLI
+code-atlas uninstall
+```
+
+The CodeAtlas CLI removes only copies it manages. Add `--unmanaged` to remove
+older manual copies too. Project-local installs can also be removed with the
+repository change that added them. The target repository's `.code-atlas/` cache
+and `CODEATLAS.md` are independent of the skill install; remove them from the
+repo if you no longer want the map.
