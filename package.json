@@ -1,0 +1,54 @@
+{
+  "name": "code-atlas",
+  "version": "1.0.0",
+  "description": "A map before the read — codebase atlas skill and CLI for AI coding agents.",
+  "keywords": [
+    "codebase",
+    "atlas",
+    "code-map",
+    "ai",
+    "agent",
+    "skill",
+    "claude-code",
+    "codex",
+    "opencode",
+    "cursor",
+    "static-analysis"
+  ],
+  "homepage": "https://github.com/hungson1002/code-atlas#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hungson1002/code-atlas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hungson1002/code-atlas/issues"
+  },
+  "author": "Nguyen Hung Son",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "code-atlas": "bin/code-atlas.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/atlas.py",
+    "scripts/install.ps1",
+    "scripts/install.sh",
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "references/",
+    "assets/"
+  ],
+  "scripts": {
+    "test": "node --test tests/test_cli.cjs && python -m unittest discover -s tests -v",
+    "test:node": "node --test tests/test_cli.cjs",
+    "test:python": "python -m unittest discover -s tests -v",
+    "pack:check": "npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
