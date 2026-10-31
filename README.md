@@ -3,6 +3,7 @@
 **A map before the read.**
 
 [![CI](https://github.com/hungson1002/CodeAtlas/actions/workflows/ci.yml/badge.svg)](https://github.com/hungson1002/CodeAtlas/actions/workflows/ci.yml)
+[![skills.sh](https://skills.sh/b/hungson1002/CodeAtlas)](https://skills.sh/hungson1002/CodeAtlas)
 
 CodeAtlas is a small, dependency-free codebase atlas for AI coding agents and
 the humans who supervise them. Build an index once, then answer the questions
@@ -44,6 +45,8 @@ npx skills add hungson1002/CodeAtlas --list
 ```
 
 The `skills` CLI needs Node 22.20+. The atlas engine itself needs Python 3.9+.
+Browse the listing and security audit at
+[skills.sh/hungson1002/CodeAtlas](https://skills.sh/hungson1002/CodeAtlas).
 
 Prefer CodeAtlas's own installer (Node 18+, all five agents in one go):
 

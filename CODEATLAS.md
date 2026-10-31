@@ -1,7 +1,7 @@
 # CodeAtlas
 
 > `CodeAtlas` · 13 files · 4.6k LOC · 86 symbols
-> Generated 2026-10-31 09:47:40 · commit `d211da9` · CodeAtlas v1.0.0
+> Generated 2026-10-31 09:48:56 · commit `9766372` · CodeAtlas v1.0.0
 > Languages: markdown 5 · config 3 · python 2 · shell 2 · javascript 1
 > Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`
 
@@ -16,8 +16,8 @@
 | Module | Files | LOC | Depends on | Key symbols |
 |---|---:|---:|---|---|
 | `scripts` | 3 | 2.8k | — | main, build_index, cmd_doctor |
+| `.` | 5 | 591 | — | — |
 | `references` | 3 | 600 | — | — |
-| `.` | 5 | 588 | — | — |
 | `tests` | 2 | 634 | — | write, AtlasCLITest |
 
 ## Hot files
@@ -29,7 +29,7 @@
 | `tests/test_cli.cjs` | 201 | 0 |
 | `scripts/install.ps1` | 157 | 0 |
 | `scripts/install.sh` | 152 | 0 |
-| `README.md` | 263 | 0 |
+| `README.md` | 266 | 0 |
 | `SKILL.md` | 254 | 0 |
 | `references/agent-setup.md` | 227 | 0 |
 
