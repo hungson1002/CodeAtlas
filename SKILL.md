@@ -13,8 +13,10 @@ breaks if I change it, which tests should run, and how do I get from A to B?*
 whole repository into context when an atlas query can answer the question.
 
 The skill directory is the folder containing this `SKILL.md`. Resolve
-`scripts/atlas.py` against that folder, not the target repository. In examples
-below, `atlas` means:
+`scripts/atlas.py` against that folder, but run every command from the **target
+repository root**, not from the skill folder. A `CODEATLAS.md` or
+`.codeatlas.json` inside the skill folder describes CodeAtlas itself; never use
+it as the target repository's map. In examples below, `atlas` means:
 
 ```bash
 python "<skill-dir>/scripts/atlas.py"      # Windows
