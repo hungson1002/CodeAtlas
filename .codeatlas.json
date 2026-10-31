@@ -1,5 +1,6 @@
 {
   "exclude": [],
+  "include": ["bin"],
   "max_file_kb": 512,
   "module_depth": 2,
   "budget": 3000,

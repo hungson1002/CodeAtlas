@@ -179,7 +179,8 @@ fall back to text search or a language server.
   hash every file; `build --full` does a clean reparse.
 - The index never stores file contents, only metadata, symbols, and edges.
 - Secrets (`.env`, keys, credentials), lockfiles, binaries, and common build
-  directories are skipped. Review `exclude` before indexing unusual layouts.
+  directories are skipped. Review `exclude` before indexing unusual layouts;
+  use `include` for a real source directory hidden by a default exclude.
 - Writes are atomic (`index.json.tmp` → replace). A failed build does not
   corrupt the previous index.
 - Generated outputs are deterministic except for the timestamp and PageRank
@@ -209,6 +210,7 @@ CodeAtlas is for orientation and impact scoping.
 ```json
 {
   "exclude": ["generated", "fixtures/large"],
+  "include": ["bin"],
   "max_file_kb": 512,
   "module_depth": 2,
   "budget": 3500,
@@ -218,8 +220,11 @@ CodeAtlas is for orientation and impact scoping.
 }
 ```
 
-`.gitignore` patterns are folded in automatically. `module_depth` controls how
-directories are grouped in the map and module graph (2 = `src/requests`).
+`.gitignore` patterns are folded in automatically. `include` opts paths back in
+when a default exclude or `.gitignore` rule hides them, such as `bin/` or
+`third_party/acme`; it does not bypass secret, binary, lockfile, or size checks.
+`module_depth` controls how directories are grouped in the map and module graph
+(2 = `src/requests`).
 
 ## Multi-repo and monorepo notes
 

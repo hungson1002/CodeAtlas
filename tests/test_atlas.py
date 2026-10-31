@@ -215,6 +215,49 @@ class AtlasCLITest(unittest.TestCase):
         self.assertIn("app/main.py", files)
         self.assertIn("README.md", files)
 
+    def test_include_overrides_default_exclude(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-include-") as tmp:
+            root = Path(tmp)
+            write(root, "app.py", "def main():\n    return 1\n")
+            write(
+                root,
+                "bin/cli.js",
+                "function installPayload(target) {\n"
+                "  return target;\n"
+                "}\n"
+                "module.exports = { installPayload };\n",
+            )
+            write(root, "bin/.env", "SECRET=do-not-index-me\n")
+            write(root, "bin/package-lock.json", "{}\n")
+            write(root, "node_modules/junk.js", "module.exports = 1;\n")
+            write(root, ".codeatlas.json", json.dumps({"include": ["bin"]}) + "\n")
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+            build = subprocess.run(
+                [sys.executable, str(ATLAS), "build", "--no-git"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=120,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr)
+            index = json.loads(
+                (root / ".code-atlas" / "index.json").read_text(encoding="utf-8")
+            )
+            files = index["files"]
+            self.assertIn("bin/cli.js", files)
+            self.assertIn(
+                "installPayload",
+                {s["name"] for s in files["bin/cli.js"]["symbols"]},
+            )
+            # An include only overrides path exclusion. Secrets, lockfiles, and
+            # other default excludes are still filtered.
+            self.assertNotIn("bin/.env", files)
+            self.assertNotIn("bin/package-lock.json", files)
+            self.assertNotIn("node_modules/junk.js", files)
+
     def test_python_relative_and_absolute_imports(self) -> None:
         main = self.index["files"]["app/main.py"]
         self.assertIn("app/helpers.py", main["imports"])

@@ -35,7 +35,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -359,6 +359,27 @@ def excluded_by(rel, compiled):
     return False
 
 
+def included_by(rel, compiled):
+    """Return True when a path opts back into a normally excluded tree.
+
+    Includes are path prefixes or gitignore-style globs. A prefix also matches
+    its ancestors so the scanner can walk down to it (``bin`` walks ``.`` and
+    ``bin``; ``src/generated`` walks ``src``).
+    """
+    names, globs = compiled
+    parts = rel.split("/")
+    if any(part in names for part in parts):
+        return True
+    for pat in globs:
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, pat + "/**"):
+            return True
+        if pat.startswith(rel + "/"):
+            return True
+        if "/" not in pat and any(fnmatch.fnmatch(part, pat) for part in parts):
+            return True
+    return False
+
+
 def is_excluded(rel, patterns):
     return excluded_by(rel, compile_excludes(patterns))
 
@@ -419,6 +440,7 @@ def find_root(arg=None):
 def load_config(root):
     cfg = {
         "exclude": list(DEFAULT_EXCLUDES),
+        "include": [],
         "max_file_kb": 512,
         "module_depth": 2,
         "budget": 3500,
@@ -453,19 +475,22 @@ def scan_files(root, cfg):
     out = []
     max_bytes = int(cfg.get("max_file_kb", 512)) * 1024
     excludes = compile_excludes(cfg.get("exclude", []))
+    includes = compile_excludes(cfg.get("include", []))
     map_name = (cfg.get("map_file") or DEFAULT_MAP).replace("\\", "/")
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         dirnames[:] = sorted(
             d for d in dirnames
-            if not excluded_by((rel_dir + "/" + d) if rel_dir != "." else d, excludes)
+            if (included_by(((rel_dir + "/" + d) if rel_dir != "." else d), includes)
+                or not excluded_by(((rel_dir + "/" + d) if rel_dir != "." else d), excludes))
             and not d.startswith(".code-atlas")
+            and d not in (".git", ".hg", ".svn")
         )
         for fn in sorted(filenames):
             rel = fn if rel_dir == "." else f"{rel_dir}/{fn}"
             if rel == map_name:
                 continue
-            if excluded_by(rel, excludes):
+            if excluded_by(rel, excludes) and not included_by(rel, includes):
                 continue
             if fn.lower() in LOCK_NAMES or fn.endswith(".min.js") or fn.endswith(".min.css"):
                 continue
@@ -2374,6 +2399,7 @@ def main(argv=None):
         else:
             cfgp.write_text(json.dumps({
                 "exclude": [],
+                "include": [],
                 "max_file_kb": 512,
                 "module_depth": 2,
                 "budget": 3500,

@@ -165,6 +165,7 @@ Common causes:
 - edited files after the last build → `update`;
 - branch checkout with a different HEAD → `update` or `build --full`;
 - generated code excluded by config → adjust `exclude`;
+- a needed directory hidden by a default exclude (for example `bin/`) → add it to `include`;
 - syntax errors → `stats` lists samples; fix or exclude the file;
 - dynamic calls → no static edge; use `rg` or an LSP.
 

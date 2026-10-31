@@ -204,6 +204,7 @@ script-blocking defaults.
 ```json
 {
   "exclude": ["generated", "fixtures/large"],
+  "include": ["bin"],
   "max_file_kb": 512,
   "module_depth": 2,
   "budget": 3500,
@@ -214,7 +215,10 @@ script-blocking defaults.
 ```
 
 Excludes are additive to built-in defaults and `.gitignore`. Secrets, binaries,
-lockfiles, and common build/vendor directories are skipped by default.
+lockfiles, and common build/vendor directories are skipped by default. `include`
+opts specific paths back in when a default or `.gitignore` rule would hide them,
+for example a hand-written `bin/cli.js`. It only overrides path exclusion:
+secret, binary, lockfile, and size checks still apply.
 `git_churn` counts recent commits per file and feeds the impact risk score.
 
 ## Design

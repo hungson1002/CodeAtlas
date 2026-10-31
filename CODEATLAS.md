@@ -1,8 +1,8 @@
 # CodeAtlas
 
-> `CodeAtlas` · 13 files · 4.6k LOC · 86 symbols
-> Generated 2026-10-31 09:49:44 · commit `7fa9c60` · CodeAtlas v1.0.0
-> Languages: markdown 5 · config 3 · python 2 · shell 2 · javascript 1
+> `CodeAtlas` · 14 files · 5.8k LOC · 127 symbols
+> Generated 2026-10-31 09:59:02 · commit `ae9d50c` · CodeAtlas v1.0.1
+> Languages: markdown 5 · config 3 · javascript 2 · python 2 · shell 2
 > Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`
 
 ## Start here
@@ -15,23 +15,24 @@
 
 | Module | Files | LOC | Depends on | Key symbols |
 |---|---:|---:|---|---|
-| `scripts` | 3 | 2.8k | — | main, build_index, cmd_doctor |
-| `.` | 5 | 593 | — | — |
-| `references` | 3 | 600 | — | — |
-| `tests` | 2 | 634 | — | write, AtlasCLITest |
+| `scripts` | 3 | 2.8k | — | main, build_index, read_text |
+| `bin` | 1 | 1.1k | — | — |
+| `.` | 5 | 603 | — | — |
+| `references` | 3 | 601 | — | — |
+| `tests` | 2 | 677 | — | write, AtlasCLITest |
 
 ## Hot files
 
 | File | LOC | Importers |
 |---|---:|---:|
 | `scripts/atlas.py` | 2.5k | 0 |
-| `tests/test_atlas.py` | 433 | 0 |
+| `bin/code-atlas.js` | 1.1k | 0 |
+| `tests/test_atlas.py` | 476 | 0 |
 | `tests/test_cli.cjs` | 201 | 0 |
 | `scripts/install.ps1` | 157 | 0 |
 | `scripts/install.sh` | 152 | 0 |
-| `README.md` | 266 | 0 |
-| `SKILL.md` | 256 | 0 |
-| `references/agent-setup.md` | 227 | 0 |
+| `README.md` | 270 | 0 |
+| `SKILL.md` | 261 | 0 |
 
 ## Tests
 
@@ -45,4 +46,4 @@
 - Related files under a budget: `atlas pack <area> --budget 8000`
 - Visual map: open `.code-atlas/atlas.html`
 
-_~347 tokens · index: `.code-atlas/index.json`_
+_~353 tokens · index: `.code-atlas/index.json`_
