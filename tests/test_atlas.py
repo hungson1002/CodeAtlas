@@ -351,6 +351,54 @@ class AtlasCLITest(unittest.TestCase):
         self.assertEqual(after.returncode, 0, after.stdout)
         self.assertIn("FRESH", after.stdout)
 
+    def test_doctor_ignores_empty_commit(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-git-") as tmp:
+            root = Path(tmp)
+            write(root, "app.py", "def main():\n    return 1\n")
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+
+            def git(*args: str) -> None:
+                subprocess.run(
+                    ["git", *args],
+                    cwd=str(root),
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+
+            git("init", "-q")
+            git("config", "user.email", "test@example.com")
+            git("config", "user.name", "CodeAtlas Test")
+            git("add", ".")
+            git("commit", "-qm", "initial")
+
+            build = subprocess.run(
+                [sys.executable, str(ATLAS), "build"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=120,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr)
+
+            git("commit", "--allow-empty", "-qm", "empty")
+            doctor = subprocess.run(
+                [sys.executable, str(ATLAS), "doctor"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=120,
+            )
+            self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
+            self.assertIn("FRESH", doctor.stdout)
+
     def test_stats_json(self) -> None:
         data = json.loads(self.atlas("stats", "--json").stdout)
         self.assertGreater(data["files"], 0)

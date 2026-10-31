@@ -2243,7 +2243,10 @@ def cmd_doctor(root, index, fix=False):
     new = sorted(present - set(files))
     head = git(root, "rev-parse", "--short", "HEAD") if (root / ".git").exists() else ""
     stats = index.get("stats", {})
-    stale = bool(changed or missing or new or (head and index.get("git_head") and head != index["git_head"]))
+    # A new commit alone does not invalidate the index: file size/mtime and the
+    # tracked file set are the real freshness signals. Treating every HEAD move
+    # as stale made a committed CODEATLAS.md permanently stale.
+    stale = bool(changed or missing or new)
     print(c("CodeAtlas doctor", "36"))
     print(f"  index      : {index_path(root)}")
     print(f"  generated  : {index.get('generated')}  (build {stats.get('build_ms',0)} ms)")
