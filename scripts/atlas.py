@@ -35,7 +35,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -1436,6 +1436,36 @@ def html_data(index, top=80):
     files = index["files"]
     rank = index.get("pagerank", {})
     mods, deps = module_stats(index)
+    all_edges = index.get("edges", [])
+
+    # Aggregate import and cross-file call edges into one relationship graph.
+    # Imports stay file-to-file; calls are symbol-to-symbol and must be folded
+    # back to their owning files before they can be drawn.
+    rel_weight = Counter()
+    rel_kind = {}
+    call_counts = Counter()
+    for e in all_edges:
+        kind = e.get("k")
+        if kind == "c":
+            src = (e.get("f") or "").split("::", 1)[0]
+            dst = (e.get("t") or "").split("::", 1)[0]
+            call_counts[src] += 1
+        elif kind == "i":
+            src, dst = e.get("f"), e.get("t")
+        else:
+            continue
+        if not src or not dst or src == dst:
+            continue
+        if src not in files or dst not in files:
+            continue
+        rel_weight[(src, dst)] += 1
+        if kind == "i":
+            rel_kind[(src, dst)] = "i"
+        else:
+            rel_kind.setdefault((src, dst), "c")
+
+    def mod_of(rel):
+        return files[rel].get("module", ".")
 
     def mod_rank(m):
         return sum(rank.get(rel, 0) for rel, f in files.items() if f.get("module") == m)
@@ -1452,21 +1482,29 @@ def html_data(index, top=80):
             "rank": round(mod_rank(m), 6),
             "deps": [t for t, _ in deps[m].most_common(8)],
         })
-    module_links = []
-    for m, dd in deps.items():
-        for t, w in dd.items():
-            if m in mods and t in mods:
-                module_links.append({"s": m, "t": t, "w": w})
+
+    mod_weight = Counter()
+    mod_kind = {}
+    for (src, dst), w in rel_weight.items():
+        sm, dm = mod_of(src), mod_of(dst)
+        if sm == dm:
+            continue
+        mod_weight[(sm, dm)] += w
+        if rel_kind[(src, dst)] == "i":
+            mod_kind[(sm, dm)] = "i"
+        else:
+            mod_kind.setdefault((sm, dm), "c")
+    module_links = [
+        {"s": m, "t": t, "w": w, "k": mod_kind.get((m, t), "i")}
+        for (m, t), w in sorted(mod_weight.items())
+        if m in mods and t in mods
+    ]
 
     # File view is a code map: docs/config nodes are useful in the module
     # graph and search, but as isolated dots they add noise.  Keep connected
     # code files when there are enough of them so fitView can zoom in.
     pool = {rel: f for rel, f in files.items() if f.get("lang") in CODE_LANGS}
-    edge_files = set()
-    for e in index.get("edges", []):
-        if e.get("k") == "i":
-            edge_files.add(e["f"])
-            edge_files.add(e["t"])
+    edge_files = {rel for pair in rel_weight for rel in pair}
     connected = {rel: f for rel, f in pool.items() if rel in edge_files}
     if len(connected) >= 8:
         pool = connected
@@ -1497,14 +1535,15 @@ def html_data(index, top=80):
             "lang": f.get("lang", "?"),
             "rank": round(rank.get(rel, 0), 6),
             "tests": is_test_file(rel),
+            "calls": call_counts.get(rel, 0),
             "symbols": [s["name"] for s in f.get("symbols", []) if s.get("exported")][:10],
             "deps": [t for t in f.get("imports", []) if t in sel_set][:10],
         })
-    file_links = []
-    for rel in selected:
-        for t in files[rel].get("imports", []):
-            if t in sel_set:
-                file_links.append({"s": rel, "t": t, "w": 1})
+    file_links = [
+        {"s": src, "t": dst, "w": w, "k": rel_kind.get((src, dst), "i")}
+        for (src, dst), w in sorted(rel_weight.items())
+        if src in sel_set and dst in sel_set
+    ]
 
     stats = index["stats"]
     return {
@@ -1531,89 +1570,272 @@ HTML_TEMPLATE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeAtlas</title>
 <style>
-:root{--bg:#0b1020;--panel:#0f1730;--line:#22315c;--ink:#e8eefc;--muted:#8ea0c8;--accent:#5eead4}
+:root{
+  --shell:#f5f6f8;
+  --card:#ffffff;
+  --ink:#15171c;
+  --ink-soft:#4e5561;
+  --muted:#656c78;
+  --line:#e3e6ea;
+  --line-strong:#ccd1d8;
+  --accent:#ff5a36;
+  --accent-ui:#bf3a1c;
+  --focus:#315bff;
+  --stage:#0d0f13;
+  --on-stage:#e9ebef;
+  --on-stage-muted:#8b93a1;
+  --sans:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --mono:"Cascadia Code","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+}
 *{box-sizing:border-box}
-html,body{height:100%;margin:0;overflow:hidden;background:radial-gradient(1100px 700px at 75% -15%,#1b2a5a 0%,#0b1020 58%);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
-#app{display:flex;height:100%}
-#stage{position:relative;flex:1;min-width:0}
-canvas{display:block;width:100%;height:100%;cursor:grab}
-canvas.dragging{cursor:grabbing}
-header{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:8px 10px;padding:14px 18px;pointer-events:none;flex-wrap:wrap}
-header>*{pointer-events:auto}
-h1{font-size:15px;margin:0 8px 0 0;letter-spacing:.4px;white-space:nowrap;flex:0 0 auto}
-h1 b{color:var(--accent)}
-.badge{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:3px 8px;border-radius:999px;white-space:nowrap;background:rgba(15,23,48,.6);flex:0 0 auto;max-width:280px;overflow:hidden;text-overflow:ellipsis}
-#search{background:rgba(15,23,48,.85);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:7px 11px;outline:none;width:220px;min-width:140px;font-size:13px;flex:0 1 220px}
-#search:focus{border-color:#3b5bb5}
-#search::placeholder{color:#61739b}
-button{background:rgba(15,23,48,.85);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:7px 11px;cursor:pointer;font-size:12px}
-button:hover{border-color:#3b5bb5}
-button.on{background:#17345f;border-color:#4f7ad6;color:#cfe0ff}
-#panel{width:330px;flex:0 0 330px;border-left:1px solid var(--line);background:rgba(10,16,32,.78);backdrop-filter:blur(10px);padding:18px;overflow:auto}
-#panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0 0 10px}
-#panel .big{font-size:16px;font-weight:600;word-break:break-word;margin:0 0 4px}
-#panel .sub{color:var(--muted);font-size:12px;margin:0 0 14px;word-break:break-word}
-.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;font-size:12.5px;margin:0 0 16px}
-.kv span:nth-child(odd){color:var(--muted)}
-.kv span:nth-child(even){word-break:break-word}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
-.chip{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:#c9d6f5;background:rgba(23,52,95,.35)}
-.chip.link{cursor:pointer}
-.chip.link:hover{border-color:#4f7ad6}
-#legend{position:absolute;left:16px;bottom:14px;display:flex;flex-wrap:wrap;gap:8px 12px;max-width:60%;font-size:11px;color:var(--muted)}
-#legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
-#hint{position:absolute;right:16px;bottom:14px;font-size:11px;color:#5c6d93}
-#tooltip{position:absolute;pointer-events:none;background:#0c1428;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;opacity:0;transition:opacity .12s;white-space:nowrap;z-index:5}
-hr{border:0;border-top:1px solid var(--line);margin:16px 0}
-.small{font-size:11.5px;color:var(--muted)}
-a{color:#7dd3fc;text-decoration:none}
+html,body{height:100%}
+body{margin:0;background:var(--shell);color:var(--ink);font:14px/1.5 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#app{display:flex;height:100vh;height:100dvh;min-height:100vh;background:var(--shell)}
+#stage{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;background:var(--stage)}
+.topbar{display:flex;align-items:center;gap:18px;height:60px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--card);position:relative;z-index:3;flex:0 0 auto}
+.brand{display:flex;align-items:center;gap:9px;flex:0 0 auto;color:var(--ink)}
+.brand-mark{width:9px;height:9px;border-radius:2px;background:var(--accent);transform:rotate(45deg);box-shadow:0 0 0 3px rgba(255,90,54,.12);flex:0 0 auto}
+.brand-word{font:700 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.brand-word .slash{color:var(--accent);padding:0 1px}
+.brand:hover .brand-word{color:var(--accent-ui)}
+.repo-block{display:flex;flex-direction:column;gap:1px;min-width:0;padding-left:18px;border-left:1px solid var(--line);max-width:240px}
+.repo-name{font-weight:600;font-size:12.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.repo-meta{font:10px/1.3 var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.controls{display:flex;align-items:center;gap:14px;margin-left:auto;min-width:0}
+.search{display:flex;align-items:center;gap:8px;height:34px;padding:0 9px 0 10px;background:#f1f2f4;border:1px solid transparent;border-radius:8px;min-width:250px;max-width:350px;flex:1 1 280px;transition:background .15s ease,border-color .15s ease,box-shadow .15s ease}
+.search svg{opacity:.55;flex:0 0 auto}
+.search input{border:0;background:transparent;padding:1px 0;width:100%;min-width:0;font-size:12.5px;outline:none}
+.search input::placeholder{color:var(--muted)}
+.search:focus-within{background:#fff;border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,90,54,.12)}
+.search-count{font:10px/1 var(--mono);color:var(--accent-ui);white-space:nowrap}
+.kbd{font:10px/1 var(--mono);color:var(--muted);border:1px solid var(--line-strong);border-radius:4px;padding:2px 5px;background:#fff;flex:0 0 auto;transition:opacity .12s ease}
+.search:focus-within .kbd{opacity:0}
+.tabs{display:flex;align-items:center;gap:2px;background:#eef0f3;border-radius:8px;padding:3px;flex:0 0 auto}
+.tab{font-size:12px;font-weight:600;color:var(--muted);padding:6px 10px;border-radius:6px;display:flex;gap:6px;align-items:center;white-space:nowrap;transition:background .15s ease,color .15s ease}
+.tab .n{font:9.5px/1 var(--mono);color:var(--muted);background:rgba(21,23,28,.05);border-radius:4px;padding:2px 4px}
+.tab:hover{color:var(--ink)}
+.tab[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,20,30,.08)}
+.tab[aria-pressed="true"] .n{background:rgba(255,90,54,.12);color:var(--accent-ui)}
+.textbtn{font-size:11.5px;font-weight:600;color:var(--muted);padding:8px 9px;border-radius:6px;border:1px solid transparent;white-space:nowrap;flex:0 0 auto}
+.textbtn:hover{background:#f1f2f4;color:var(--ink)}
+.textbtn[aria-pressed="true"]{color:var(--ink);background:#eef0f3}
+#map{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--stage)}
+#graph{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+#graph.dragging{cursor:grabbing}
+.platefoot{display:flex;align-items:center;gap:16px;min-height:40px;padding:0 20px;border-top:1px solid rgba(255,255,255,.08);background:var(--stage);color:var(--on-stage-muted);flex:0 0 auto}
+.map-note{margin:0;font:10px/1.5 var(--mono);color:var(--on-stage-muted);letter-spacing:.01em;min-width:0;flex:1 1 auto}
+.map-note strong{color:var(--on-stage);font-weight:600}
+.foot-key{color:#7d8798}
+.hint{font:9.5px/1.4 var(--mono);color:#7d8798;white-space:nowrap;flex:0 0 auto}
+.zoom{display:flex;border:1px solid rgba(255,255,255,.14);border-radius:5px;overflow:hidden;background:rgba(255,255,255,.02);flex:0 0 auto}
+.zoom button{width:32px;height:30px;display:grid;place-items:center;font-size:13px;line-height:1;color:var(--on-stage-muted)}
+.zoom button+button{border-left:1px solid rgba(255,255,255,.1)}
+.zoom button:hover{background:rgba(255,255,255,.08);color:#fff}
+#tooltip{position:absolute;z-index:6;pointer-events:none;max-width:290px;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.34);opacity:0;transform:translateY(2px);transition:opacity .12s ease,transform .12s ease}
+#tooltip.show{opacity:1;transform:none}
+.tip-name{font:600 12px/1.35 var(--sans);overflow-wrap:anywhere;color:var(--ink)}
+.tip-meta{font:10px/1.45 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+#empty{position:absolute;inset:0;display:grid;place-content:center;gap:6px;text-align:center;padding:30px;pointer-events:none}
+#empty[hidden]{display:none}
+#empty p{margin:0;color:#b9c0cc}
+#empty .fine{margin-top:4px;color:#788190}
+#panel{width:360px;flex:0 0 360px;border-left:1px solid var(--line);background:var(--card);overflow-y:auto;padding:24px 24px 40px;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+#panel::-webkit-scrollbar{width:10px}
+#panel::-webkit-scrollbar-thumb{background:var(--line-strong);border:3px solid var(--card);border-radius:10px}
+.panel-kicker{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font:9.5px/1.2 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.panel-kicker .v{color:var(--accent-ui);letter-spacing:.06em}
+.panel-title{font:650 28px/1.08 var(--sans);letter-spacing:-.028em;margin:12px 0 8px;word-break:break-word}
+.panel-lede{margin:0 0 18px;color:var(--ink-soft);font-size:13px;line-height:1.6}
+.panel-path{font:11px/1.5 var(--mono);color:var(--muted);word-break:break-all;margin:-2px 0 15px}
+.rule{height:1px;background:var(--line);margin:18px 0}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:10px;background:#f8f9fb;overflow:hidden}
+.facts div{padding:10px 12px;min-width:0}
+.facts div:nth-child(odd){border-right:1px solid var(--line)}
+.facts div:nth-child(-n+2){border-bottom:1px solid var(--line)}
+.facts dt{font:9.5px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 2px}
+.facts dd{margin:0;font:650 17px/1.25 var(--sans);color:var(--ink);overflow-wrap:anywhere}
+.section-title{font:9.5px/1.2 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:22px 0 9px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.section-title .count{letter-spacing:0;color:var(--accent-ui)}
+.legend-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.legend-list li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;font-size:12px;line-height:1.5;color:var(--ink-soft)}
+.legend-list b{color:var(--ink);font-weight:600}
+.swatch{width:26px;height:18px;border-radius:4px;background:#14171d;display:grid;place-items:center;justify-self:start;margin-top:1px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.swatch::after{content:"";display:block}
+.swatch.hub::after{width:8px;height:8px;border:1.5px solid #8fb0ff;border-radius:50%}
+.swatch.file::after{width:8px;height:8px;border-radius:50%;background:#6ea8fe}
+.swatch.dep::after{width:14px;border-top:1.5px solid #8b95a7}
+.swatch.contain::after{width:14px;border-top:1.5px dotted #606a7a}
+.langs{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.langs li{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft)}
+.langs .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.langs .name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.langs .n{font:10px/1 var(--mono);color:var(--muted)}
+.fine{margin:22px 0 0;font:10px/1.5 var(--mono);color:var(--muted);word-break:break-word}
+.back{display:inline-flex;align-items:center;gap:6px;font:10.5px/1.2 var(--mono);color:var(--muted);margin:0 0 17px;padding:2px 0;border-bottom:1px solid transparent}
+.back:hover{color:var(--ink);border-bottom-color:var(--line-strong)}
+.crumb{font:9.5px/1.2 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--accent-ui);margin:0 0 8px}
+.rows{list-style:none;margin:0;padding:0}
+.rows li{margin:0 0 5px}
+.row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;padding:9px 10px;text-align:left;border:1px solid var(--line);border-radius:8px;background:#fff;transition:background .12s ease,border-color .12s ease}
+.row:hover{border-color:var(--line-strong);background:#f8f9fb}
+.row:hover .row-name{color:var(--accent-ui)}
+.row-name{font-size:12.5px;color:var(--ink);min-width:0;overflow-wrap:anywhere}
+.row-meta{font:10px/1.3 var(--mono);color:var(--muted);white-space:nowrap;flex:0 0 auto}
+.row-kind{font:9px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--accent-ui);border:1px solid rgba(207,69,37,.25);background:rgba(255,90,54,.07);padding:2px 5px;border-radius:4px;margin-right:7px}
+.symbols{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 12px}
+.symbols button{font:11px/1.8 var(--mono);color:var(--ink-soft);border-bottom:1px solid transparent;text-align:left;overflow-wrap:anywhere}
+.symbols button:hover{color:var(--accent-ui);border-bottom-color:var(--accent-ui)}
+.empty-note{margin:0;font-size:12px;line-height:1.5;color:var(--muted);font-style:italic}
+@media (max-width:1280px){.repo-block{display:none}}
+@media (max-width:1120px){
+  #panel{width:320px;flex-basis:320px;padding:22px 20px 36px}
+  .search{min-width:220px;flex-basis:240px}
+  .topbar{gap:14px;padding:0 18px}
+  .hint{display:none}
+}
+@media (max-width:860px){
+  html,body{height:auto;min-height:100%}
+  body{overflow:auto}
+  #app{display:block;height:auto;min-height:100dvh}
+  #stage{height:66vh;height:66dvh;min-height:430px}
+  .topbar{height:auto;flex-wrap:wrap;gap:12px 16px;padding:14px 18px}
+  .controls{margin-left:0;width:100%;flex-wrap:wrap;gap:10px 12px}
+  .search{flex:1 1 100%;max-width:none;order:3;min-width:0}
+  .kbd{display:none}
+  .tabs{order:1}
+  .textbtn{order:2}
+  #panel{width:auto;border-left:0;border-top:1px solid var(--line);padding:22px 20px 40px;overflow:visible}
+  .platefoot{padding:0 18px;min-height:48px}
+  .tab{padding:8px 11px}
+  .textbtn{padding:9px 10px}
+  .search{height:38px}
+  .zoom button{width:38px;height:34px}
+}
+@media (max-width:620px){.foot-key{display:none}}
+@media (max-width:380px){
+  .map-note{font-size:9px}
+  .platefoot{gap:10px}
+  .zoom button{width:32px;height:30px}
+}
+@media (max-width:480px){
+  #stage{height:64vh;height:64dvh;min-height:400px}
+  .brand-word{font-size:11px}
+  .tab{font-size:11.5px;padding:6px 8px}
+  .panel-title{font-size:24px}
+  .facts dd{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}
+}
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="stage">
-    <canvas id="graph"></canvas>
-    <header>
-      <h1>Code<b>Atlas</b></h1>
-      <span class="badge" id="repo"></span>
-      <span class="badge" id="stats"></span>
-      <input id="search" placeholder="Search module / file / symbol…" autocomplete="off">
-      <button id="mode-modules" class="on">Modules</button>
-      <button id="mode-files">Files</button>
-      <button id="reset">Reset view</button>
-      <button id="labels" class="on">Labels</button>
-    </header>
-    <div id="legend"></div>
-    <div id="hint">scroll = zoom · drag = pan · click = inspect</div>
-    <div id="tooltip"></div>
-  </div>
-  <aside id="panel"></aside>
+  <main id="stage" aria-label="CodeAtlas interactive map">
+    <div class="topbar">
+      <button class="brand" id="brand" type="button" aria-label="Return to the atlas overview">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-word">Code<span class="slash">/</span>Atlas</span>
+      </button>
+      <div class="repo-block">
+        <span class="repo-name" id="repo"></span>
+        <span class="repo-meta" id="repo-meta"></span>
+      </div>
+      <div class="controls">
+        <label class="search" for="search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 4.5 4.5"></path></svg>
+          <input id="search" type="search" placeholder="Search files or symbols" autocomplete="off" spellcheck="false" aria-label="Search files, modules, and symbols">
+          <span class="kbd" aria-hidden="true">/</span>
+          <span class="search-count" id="search-count" aria-live="polite"></span>
+        </label>
+        <div class="tabs" role="group" aria-label="Map view">
+          <button class="tab" id="mode-modules" type="button" aria-pressed="true">Modules <span class="n" id="n-modules"></span></button>
+          <button class="tab" id="mode-files" type="button" aria-pressed="false">Files <span class="n" id="n-files"></span></button>
+        </div>
+        <button class="textbtn" id="labels" type="button" aria-pressed="true">Labels</button>
+        <button class="textbtn" id="reset" type="button">Fit</button>
+      </div>
+    </div>
+    <div id="map">
+      <canvas id="graph" role="img" aria-label="Code dependency map"></canvas>
+      <div id="empty" hidden>
+        <p>No code files to map in this view.</p>
+        <p class="fine">Try Modules, or add code files to the repository.</p>
+      </div>
+      <div id="tooltip" role="status"></div>
+    </div>
+    <div class="platefoot">
+      <p class="map-note" id="map-note"></p>
+      <span class="hint">drag to pan · scroll to zoom · click to inspect</span>
+      <div class="zoom" role="group" aria-label="Map zoom">
+        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-fit" type="button" aria-label="Fit map to view">⌂</button>
+      </div>
+    </div>
+  </main>
+  <aside id="panel" aria-label="Atlas index"></aside>
+  <div id="live" class="sr-only" aria-live="polite"></div>
 </div>
 <script>
 const DATA = /*__ATLAS_DATA__*/null;
-const LANG = {"python":"#4b8bbe","typescript":"#4f9cf0","javascript":"#e8d44d","go":"#00add8","rust":"#dea584","java":"#c96a3b","kotlin":"#a97bff","csharp":"#4f9a58","ruby":"#b03a4a","php":"#6b7cc9","c":"#8a93a8","cpp":"#e05a7a","swift":"#f05138","scala":"#c22d40","lua":"#5a7fd8","shell":"#89e051","markdown":"#5b7fb0","config":"#6b7280","sql":"#e38c00"};
+const START_MODE = "__START_MODE__";
+const STAGE = '#0d0f13';
+const INK = '#e9ebef';
+const ACCENT = '#ff5a36';
+const WHITE = '#ffffff';
+const FONT_UI = '600 12px "Segoe UI",system-ui,sans-serif';
+const FONT_FILE = '600 11.5px "Segoe UI",system-ui,sans-serif';
+const LANG = {"python":"#4d8fba","typescript":"#5b86d6","javascript":"#d4a53a","go":"#47b3c0","rust":"#d97b52","java":"#d98a52","kotlin":"#9b7fd4","csharp":"#6fae6f","ruby":"#d9646f","php":"#7d8fd0","c":"#8a9690","cpp":"#d4708a","swift":"#e0704c","scala":"#d95a6a","lua":"#6e94d6","shell":"#8fa85a","markdown":"#a9927a","config":"#9a9c94","sql":"#d4934a"};
+
 const canvas = document.getElementById('graph');
 const ctx = canvas.getContext('2d');
 const panel = document.getElementById('panel');
 const tooltip = document.getElementById('tooltip');
 const search = document.getElementById('search');
-const state = {mode:'modules',nodes:[],links:[],byId:new Map(),view:{x:0,y:0,k:1},selected:null,hover:null,labels:true,query:'',w:0,h:0,anim:0};
+const mapNote = document.getElementById('map-note');
+const emptyBox = document.getElementById('empty');
+const live = document.getElementById('live');
+const state = {
+  mode: 'modules', nodes: [], links: [], byId: new Map(), moduleHub: new Map(),
+  view: {x:0,y:0,k:1}, selected: null, hover: null, labels: true, query: '',
+  w: 0, h: 0, userMoved: false
+};
 
 const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const $ = sel => document.querySelector(sel);
 
+function h(tag, cls, text){
+  const node = document.createElement(tag);
+  if(cls) node.className = cls;
+  if(text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+function hexA(hex, a){
+  const n = parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
 function topLang(n){
   if(!n.langs) return n.lang;
-  const e = Object.entries(n.langs).sort((a,b)=>b[1]-a[1])[0];
-  return e?e[0]:'config';
+  const entries = Object.entries(n.langs).sort((a,b)=>b[1]-a[1]);
+  return entries.length ? entries[0][0] : 'config';
 }
-function colorOf(n){ return LANG[topLang(n)] || '#7dd3fc'; }
-function radiusOf(n){
-  if(state.mode==='modules') return clamp(9+Math.sqrt(n.loc||1)/2.2,10,30);
-  return clamp(4.5+Math.sqrt(n.loc||1)/1.8,5,22);
+function colorOf(n){ return LANG[topLang(n)] || '#7a7b74'; }
+function displayLabel(n){
+  if(n.kind === 'root') return n.label;
+  if(n.id === '.' && (n.kind === 'hub' || n.kind === 'module')) return 'root files';
+  return n.label || n.id;
 }
+function moduleRadius(n){ return clamp(15 + Math.sqrt(n.loc||1)/5.2 + Math.min(5,(n.files||1)*1.1), 17, 35); }
+function hubRadius(n){ return clamp(13 + Math.sqrt(n.loc||1)/9 + Math.min(4,(n.files||1)*1.3), 15, 25); }
+function fileRadius(n){ return clamp(4.5 + Math.sqrt(n.loc||1)/4.2, 5.2, 12); }
 function matches(n){
-  const q=state.query.trim().toLowerCase();
+  const q = state.query.trim().toLowerCase();
   if(!q) return true;
   if((n.id||'').toLowerCase().includes(q)) return true;
   if((n.label||'').toLowerCase().includes(q)) return true;
@@ -1622,257 +1844,822 @@ function matches(n){
 function screenPos(n){
   return {x: state.w/2 + state.view.x + n.x*state.view.k, y: state.h/2 + state.view.y + n.y*state.view.k};
 }
+function resolveNode(id){ return state.byId.get(id) || state.moduleHub.get(id) || null; }
 
-function load(mode){
-  state.mode=mode; state.selected=null;
-  const g=DATA[mode];
-  const nodes=g.nodes.map((n,i)=>{
-    const a=i*2.399963, r=60+Math.sqrt(i+1)*26;
-    return Object.assign({},n,{x:Math.cos(a)*r+(Math.random()-.5)*10,y:Math.sin(a)*r+(Math.random()-.5)*10,vx:0,vy:0});
-  });
-  nodes.forEach(n=>{n.r=radiusOf(n);});
-  const byId=new Map(nodes.map(n=>[n.id,n]));
-  const links=g.links.filter(l=>byId.has(l.s)&&byId.has(l.t)).map(l=>({s:l.s,t:l.t,w:l.w||1,a:byId.get(l.s),b:byId.get(l.t)}));
-  state.nodes=nodes; state.links=links; state.byId=byId; state.view={x:0,y:0,k:1};
-  for(let i=0;i<280;i++) tick(0.95);
-  fitView();
-  animate();
-  updateHead(); showDefault();
+function seedFrom(text){
+  let hsh = 2166136261;
+  for(let i=0;i<text.length;i++){ hsh ^= text.charCodeAt(i); hsh = Math.imul(hsh, 16777619); }
+  return hsh >>> 0;
 }
+
+function buildGraph(mode){
+  const rawLinks = [];
+  if(mode === 'modules'){
+    const root = {id:'__root__', label:DATA.meta.repo, kind:'root', files:DATA.meta.files, loc:DATA.meta.loc, r:27, rank:1};
+    const nodes = [root, ...DATA.modules.nodes.map(n=>({...n, kind:'module', r:moduleRadius(n)}))];
+    for(const n of nodes.slice(1)) rawLinks.push({s:root.id, t:n.id, k:'contains', w:1});
+    for(const l of DATA.modules.links) rawLinks.push({...l, k:l.k || 'i'});
+    return finishGraph(nodes, rawLinks, mode);
+  }
+  const usedModules = new Set(DATA.files.nodes.map(f=>f.module));
+  const nodes = [];
+  const moduleHub = new Map();
+  for(const m of DATA.modules.nodes){
+    if(!usedModules.has(m.id)) continue;
+    const hub = {...m, id:'module:'+m.id, module:m.id, kind:'hub', r:hubRadius(m)};
+    moduleHub.set(m.id, hub);
+    nodes.push(hub);
+  }
+  for(const f of DATA.files.nodes){
+    nodes.push({...f, kind:'file', r:fileRadius(f)});
+    const hub = moduleHub.get(f.module);
+    if(hub) rawLinks.push({s:hub.id, t:f.id, k:'contains', w:1});
+  }
+  for(const l of DATA.files.links) rawLinks.push({...l, k:l.k || 'i'});
+  return finishGraph(nodes, rawLinks, mode, moduleHub);
+}
+function finishGraph(nodes, rawLinks, mode, moduleHub = new Map()){
+  const byId = new Map(nodes.map(n=>[n.id,n]));
+  const seen = new Set();
+  const links = [];
+  for(const l of rawLinks){
+    if(!l.s || !l.t || l.s === l.t) continue;
+    const a = byId.get(l.s), b = byId.get(l.t);
+    if(!a || !b) continue;
+    const key = l.k+'|'+l.s+'|'+l.t;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    links.push({...l, a, b, w:l.w || 1});
+  }
+  const dirKeys = new Set(links.map(l=>l.k+'|'+l.s+'|'+l.t));
+  for(const l of links) l.both = l.k !== 'contains' && dirKeys.has(l.k+'|'+l.t+'|'+l.s);
+  return {nodes, links, byId, moduleHub, mode};
+}
+
+function nodeWeight(n){ return (n.loc||1) + (n.files||1)*40; }
+function orderByLinks(nodes, links){
+  const byId = new Map(nodes.map(n=>[n.id,n]));
+  const adj = new Map(nodes.map(n=>[n.id,[]]));
+  for(const l of links){
+    if(l.k === 'contains') continue;
+    if(adj.has(l.s) && adj.has(l.t)){
+      adj.get(l.s).push(l.t);
+      adj.get(l.t).push(l.s);
+    }
+  }
+  const seen = new Set();
+  const out = [];
+  const ordered = nodes.slice().sort((a,b)=>nodeWeight(b)-nodeWeight(a));
+  for(const seed of ordered){
+    if(seen.has(seed.id)) continue;
+    const queue = [seed];
+    while(queue.length){
+      const n = queue.shift();
+      if(seen.has(n.id)) continue;
+      seen.add(n.id);
+      out.push(n);
+      const next = adj.get(n.id).map(id=>byId.get(id)).filter(Boolean)
+        .sort((a,b)=>nodeWeight(b)-nodeWeight(a));
+      for(const m of next) if(!seen.has(m.id)) queue.push(m);
+    }
+  }
+  return out;
+}
+function placeRing(items, radius, startAngle, ax = 1, ay = 1){
+  const n = items.length;
+  for(let i=0;i<n;i++){
+    const a = startAngle + i*2*Math.PI/n;
+    items[i].x = Math.cos(a)*radius*ax;
+    items[i].y = Math.sin(a)*radius*ay;
+  }
+}
+function placeFiles(hub, files, maxFileR){
+  const orbit = hub.r + maxFileR + 30;
+  const perRing = Math.max(5, Math.floor((2*Math.PI*orbit)/(maxFileR*2+24)));
+  const rings = Math.max(1, Math.ceil(files.length/perRing));
+  files.sort((a,b)=>(b.loc||0)-(a.loc||0));
+  if(rings === 1){
+    placeRing(files, orbit, -Math.PI/2);
+  } else {
+    const inner = files.slice(0, perRing);
+    const outer = files.slice(perRing);
+    placeRing(inner, orbit, -Math.PI/2);
+    placeRing(outer, orbit + maxFileR*2 + 26, -Math.PI/2 + Math.PI/Math.max(outer.length,1));
+  }
+  for(const f of files){ f.x += hub.x; f.y += hub.y; }
+  return orbit + (rings-1)*(maxFileR*2+26) + maxFileR;
+}
+function layoutGraph(graph, mode){
+  const nodes = graph.nodes;
+  const links = graph.links;
+  if(!nodes.length) return;
+  if(mode === 'modules'){
+    const root = nodes.find(n=>n.kind === 'root');
+    if(root){ root.x = 0; root.y = 0; }
+    const mods = orderByLinks(nodes.filter(n=>n.kind === 'module'), links);
+    const maxR = mods.reduce((m,n)=>Math.max(m,n.r), 17);
+    const spacing = maxR*2 + 54;
+    const radius = Math.max(215, (mods.length*spacing)/(2*Math.PI));
+    placeRing(mods, radius, -Math.PI/2 + .18, 1.2, .8);
+  } else {
+    const hubs = orderByLinks(nodes.filter(n=>n.kind === 'hub'), links);
+    const clusters = hubs.map(hub=>{
+      const files = nodes.filter(n=>n.kind === 'file' && n.module === hub.module);
+      const maxFileR = files.reduce((m,f)=>Math.max(m,f.r), 6);
+      const orbit = hub.r + maxFileR + 30;
+      const perRing = Math.max(5, Math.floor((2*Math.PI*orbit)/(maxFileR*2+24)));
+      const rings = Math.max(1, Math.ceil(files.length/perRing));
+      const extent = orbit + (rings-1)*(maxFileR*2+26) + maxFileR;
+      return {hub, files, maxFileR, extent};
+    });
+    if(hubs.length === 1){
+      hubs[0].x = 0;
+      hubs[0].y = 0;
+    } else {
+      const maxExtent = clusters.reduce((m,c)=>Math.max(m,c.extent), 80);
+      const spacing = maxExtent*2 + 64;
+      const radius = Math.max(250, (hubs.length*spacing)/(2*Math.PI));
+      placeRing(hubs, radius, -Math.PI/2 + .22, 1.15, .82);
+    }
+    for(const c of clusters){
+      c.hub.extent = c.extent;
+      placeFiles(c.hub, c.files, c.maxFileR);
+    }
+  }
+  graph.links = links;
+}
+
 function fitView(){
-  if(!state.nodes.length || !state.w) return;
-  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  if(!state.nodes.length || !state.w || !state.h) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for(const n of state.nodes){
-    minX=Math.min(minX,n.x-n.r); maxX=Math.max(maxX,n.x+n.r);
-    minY=Math.min(minY,n.y-n.r); maxY=Math.max(maxY,n.y+n.r);
+    const pad = n.r + 26;
+    minX = Math.min(minX, n.x-pad); maxX = Math.max(maxX, n.x+pad);
+    minY = Math.min(minY, n.y-pad); maxY = Math.max(maxY, n.y+pad);
   }
-  const pad=70;
-  const w=Math.max(1,maxX-minX), h=Math.max(1,maxY-minY);
-  const k=Math.min((state.w-pad*2)/w,(state.h-pad*2)/h,2);
-  state.view.k=Math.max(0.22,k);
-  state.view.x=-(minX+maxX)/2*state.view.k;
-  state.view.y=-(minY+maxY)/2*state.view.k;
+  const padX = clamp(state.w*.10, 46, 120);
+  const padY = clamp(state.h*.11, 46, 110);
+  const w = Math.max(1, maxX-minX), hh = Math.max(1, maxY-minY);
+  state.view.k = clamp(Math.min((state.w-padX*2)/w, (state.h-padY*2)/hh), .1, 1.6);
+  state.view.x = -(minX+maxX)/2 * state.view.k;
+  state.view.y = -(minY+maxY)/2 * state.view.k;
+  state.userMoved = false;
+  requestDraw();
 }
-function tick(alpha){
-  const {nodes,links}=state, N=nodes.length;
-  if(!N) return;
-  const rep = state.mode==='modules' ? 1800 : 5200;
-  const rest = state.mode==='modules' ? 110 : 150;
-  const gravity = state.mode==='modules' ? 0.0018 : 0.0011;
-  for(let i=0;i<N;i++){
-    const a=nodes[i];
-    for(let j=i+1;j<N;j++){
-      const b=nodes[j];
-      let dx=a.x-b.x, dy=a.y-b.y, d2=dx*dx+dy*dy;
-      if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
-      if(d2>360000) continue;
-      const f=rep*alpha/d2;
-      a.vx+=dx*f; a.vy+=dy*f; b.vx-=dx*f; b.vy-=dy*f;
-    }
-  }
-  for(const l of links){
-    const dx=l.b.x-l.a.x, dy=l.b.y-l.a.y, d=Math.hypot(dx,dy)||1;
-    const f=(d-rest)*0.005*alpha, ux=dx/d, uy=dy/d;
-    l.a.vx+=ux*f; l.a.vy+=uy*f; l.b.vx-=ux*f; l.b.vy-=uy*f;
-  }
-  for(const n of nodes){
-    n.vx+=(-n.x)*gravity*alpha; n.vy+=(-n.y)*gravity*alpha;
-    n.vx*=0.86; n.vy*=0.86; n.x+=n.vx; n.y+=n.vy;
-  }
-}
-function animate(){
-  cancelAnimationFrame(state.anim);
-  let a=1;
-  const step=()=>{
-    if(a<0.025){state.anim=0;draw();return;}
-    tick(a); a*=0.985; draw();
-    state.anim=requestAnimationFrame(step);
-  };
-  state.anim=requestAnimationFrame(step);
-}
-function resize(){
-  const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
-  state.w=r.width; state.h=r.height;
-  canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  draw();
-}
-window.addEventListener('resize',resize);
 
-function arrow(x1,y1,x2,y2,r2){
-  const dx=x2-x1, dy=y2-y1, d=Math.hypot(dx,dy)||1;
-  const ex=x2-dx/d*r2, ey=y2-dy/d*r2;
-  const ax=ex-dx/d*7, ay=ey-dy/d*7;
-  ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ax-dy/d*4,ay+dx/d*4); ctx.lineTo(ax+dy/d*4,ay-dx/d*4); ctx.closePath(); ctx.fill();
-  return {x:ex,y:ey};
+let drawQueued = false;
+function requestDraw(){
+  if(drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(()=>{ drawQueued = false; draw(); });
 }
+
+function rectsOverlap(a,b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+function circleHitsBox(p,r,box){
+  const nx = clamp(p.x,box.x,box.x+box.w);
+  const ny = clamp(p.y,box.y,box.y+box.h);
+  const dx = p.x-nx, dy = p.y-ny;
+  return dx*dx+dy*dy < r*r;
+}
+function drawClusterWashes(){
+  if(state.mode !== 'files') return;
+  for(const hub of state.moduleHub.values()){
+    if(!hub.extent) continue;
+    const p = screenPos(hub);
+    const r = (hub.extent+34)*state.view.k;
+    if(r < 12) continue;
+    const color = colorOf(hub);
+    const g = ctx.createRadialGradient(p.x,p.y,r*.35,p.x,p.y,r);
+    g.addColorStop(0,hexA(color,.10));
+    g.addColorStop(1,hexA(color,0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
 function draw(){
-  if(!state.w) return;
+  if(!state.w || !state.h) return;
   ctx.clearRect(0,0,state.w,state.h);
-  const {nodes,links}=state, q=state.query.trim();
-  // links first
-  for(const l of links){
-    const a=screenPos(l.a), b=screenPos(l.b);
-    const dim = q && !(matches(l.a)||matches(l.b));
-    ctx.globalAlpha = dim?0.05:0.16;
-    ctx.strokeStyle = '#7fa8ff';
-    ctx.lineWidth = Math.max(.5, Math.min(2.2, (l.w||1)*0.45*state.view.k));
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-    if(state.view.k>0.8){
-      ctx.globalAlpha = dim?0.05:0.28; ctx.fillStyle='#7fa8ff';
-      arrow(a.x,a.y,b.x,b.y,l.b.r*state.view.k+1);
+  ctx.fillStyle = STAGE;
+  ctx.fillRect(0,0,state.w,state.h);
+  const glow = ctx.createRadialGradient(state.w*.46,state.h*.44,0,state.w*.46,state.h*.44,Math.max(state.w,state.h)*.72);
+  glow.addColorStop(0,'rgba(255,255,255,.045)');
+  glow.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0,0,state.w,state.h);
+  const gap = 28;
+  ctx.fillStyle = 'rgba(255,255,255,.055)';
+  for(let gx=gap/2; gx<state.w; gx+=gap){
+    for(let gy=gap/2; gy<state.h; gy+=gap) ctx.fillRect(gx,gy,1,1);
+  }
+  if(!state.nodes.length){ emptyBox.hidden = false; return; }
+  emptyBox.hidden = true;
+  drawClusterWashes();
+  const selected = state.selected;
+  const q = state.query.trim();
+  const focus = new Set();
+  if(selected){
+    focus.add(selected.id);
+    for(const l of state.links){
+      if(l.s === selected.id) focus.add(l.t);
+      if(l.t === selected.id) focus.add(l.s);
     }
   }
-  // nodes
-  for(const n of nodes){
-    const p=screenPos(n), r=Math.max(3,n.r*state.view.k);
-    const on=matches(n), sel=n===state.selected;
-    ctx.globalAlpha = on?1:0.14;
+  for(const l of state.links){
+    const dim = q ? !(matches(l.a) || matches(l.b)) : (selected && !(focus.has(l.s) || focus.has(l.t)));
+    drawLink(l, !!dim, selected);
+  }
+  const ordered = state.nodes.slice().sort((a,b)=>nodeOrder(a)-nodeOrder(b));
+  for(const n of ordered){
+    const dim = (q && !matches(n)) || (selected && !focus.has(n.id));
+    drawNode(n, !!dim, n === selected, n === state.hover);
+  }
+  drawLabels(focus);
+  ctx.globalAlpha = 1;
+}
+function nodeOrder(n){
+  if(n === state.selected) return 3;
+  if(n.kind === 'file') return 2;
+  return 1;
+}
+function linkCurve(l){
+  const a = screenPos(l.a), b = screenPos(l.b);
+  const dx = b.x-a.x, dy = b.y-a.y, d = Math.hypot(dx,dy) || 1;
+  let bend = l.k === 'contains' ? 0 : Math.min(44, d*.13) * ((seedFrom(l.s+'|'+l.t) & 1) ? 1 : -1);
+  if(l.k !== 'contains'){
+    const cross = state.mode === 'modules' || (l.a.module && l.b.module && l.a.module !== l.b.module);
+    if(cross){
+      bend = Math.min(58, 20 + d*.10);
+      const ox = state.w/2 + state.view.x, oy = state.h/2 + state.view.y;
+      const mx = (a.x+b.x)/2 - ox, my = (a.y+b.y)/2 - oy;
+      const nx = -dy/d, ny = dx/d;
+      if(nx*mx + ny*my < 0) bend = -bend;
+    }
+  }
+  return {a, b, cx:(a.x+b.x)/2 - dy/d*bend, cy:(a.y+b.y)/2 + dx/d*bend};
+}
+function drawLink(l, dim, selected){
+  const {a,b,cx,cy} = linkCurve(l);
+  const contains = l.k === 'contains';
+  const call = l.k === 'c';
+  const both = !contains && l.both;
+  if(both && l.s > l.t) return;
+  const connected = selected && (l.s === selected.id || l.t === selected.id);
+  const pad = contains ? 2 : 4;
+  const sa = trimToward(a, cx, cy, trimFor(l.a, pad));
+  const sb = trimToward(b, cx, cy, trimFor(l.b, pad));
+  ctx.save();
+  ctx.globalAlpha = dim ? .04 : (connected ? 1 : (contains ? .9 : .72));
+  ctx.strokeStyle = contains ? '#606a7a' : (call ? ACCENT : '#8b95a7');
+  ctx.lineWidth = contains ? 1 : (call ? 1.25 : 1.1);
+  ctx.lineCap = 'round';
+  ctx.setLineDash(contains ? [1.5,4.5] : (call ? [4.5,3.5] : []));
+  ctx.beginPath();
+  ctx.moveTo(sa.x,sa.y);
+  ctx.quadraticCurveTo(cx,cy,sb.x,sb.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if(!contains){
+    arrowAt(sb, cx, cy);
+    if(both) arrowAt(sa, cx, cy);
+  }
+  ctx.restore();
+}
+function trimFor(node, pad){
+  const halo = node.kind === 'file' || node.kind === 'root' ? 0 : 7;
+  return Math.max(3.5, node.r*state.view.k) + halo*state.view.k + pad;
+}
+function trimToward(pt, cx, cy, dist){
+  const dx = pt.x-cx, dy = pt.y-cy, d = Math.hypot(dx,dy) || 1;
+  return {x: pt.x-dx/d*dist, y: pt.y-dy/d*dist};
+}
+function arrowAt(pt, cx, cy){
+  const tx = pt.x-cx, ty = pt.y-cy;
+  const td = Math.hypot(tx,ty) || 1;
+  ctx.fillStyle = ctx.strokeStyle;
+  drawArrow(pt.x, pt.y, tx/td, ty/td, 6.2);
+}
+function drawArrow(x,y,ux,uy,size){
+  const px = -uy, py = ux;
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  ctx.lineTo(x-ux*size+px*size*.55, y-uy*size+py*size*.55);
+  ctx.lineTo(x-ux*size-px*size*.55, y-uy*size-py*size*.55);
+  ctx.closePath();
+  ctx.fill();
+}
+function drawNode(n, dim, selected, hovered){
+  const p = screenPos(n);
+  const r = Math.max(3.5, n.r*state.view.k);
+  const color = colorOf(n);
+  ctx.save();
+  ctx.globalAlpha = dim ? .14 : 1;
+  if(selected || hovered){
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,r+6,0,Math.PI*2);
+    ctx.fillStyle = hexA(ACCENT, selected ? .16 : .09);
+    ctx.fill();
+  }
+  if(n.kind === 'root'){
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
-    ctx.fillStyle=colorOf(n); ctx.fill();
-    ctx.lineWidth = sel?2.4:1;
-    ctx.strokeStyle = sel?'#ffffff':'rgba(255,255,255,.28)';
-    ctx.stroke();
-    if(state.labels && (state.mode==='modules' || state.view.k>1.15 || sel || (q&&on) || (n.rank||0)>0.025)){
-      const label=n.label||n.id;
-      ctx.font='600 11px ui-sans-serif,system-ui';
-      ctx.textAlign='center'; ctx.textBaseline='top';
-      ctx.globalAlpha = on?1:0.2;
-      ctx.fillStyle='#dbe7ff';
-      ctx.shadowColor='#050a16'; ctx.shadowBlur=6;
-      ctx.fillText(label,p.x,p.y+r+3);
-      ctx.shadowBlur=0;
-    }
+    ctx.fillStyle = '#eef1f5'; ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = WHITE; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2.4,r*.18),0,Math.PI*2);
+    ctx.fillStyle = STAGE; ctx.fill();
+  } else if(n.kind === 'hub' || n.kind === 'module'){
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+7,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.10); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.18); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = color; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2.2,r*.17),0,Math.PI*2);
+    ctx.fillStyle = color; ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(8,10,13,.7)'; ctx.stroke();
   }
-  ctx.globalAlpha=1;
-  drawLegend();
+  if(selected){
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+3.5,0,Math.PI*2);
+    ctx.lineWidth = 2; ctx.strokeStyle = ACCENT; ctx.stroke();
+  } else if(hovered){
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+2.5,0,Math.PI*2);
+    ctx.lineWidth = 1.4; ctx.strokeStyle = WHITE; ctx.stroke();
+  }
+  ctx.restore();
 }
-function drawLegend(){
-  const langs=Object.entries(DATA.meta.languages||{}).slice(0,10);
-  document.getElementById('legend').innerHTML=langs.map(([k,v])=>`<span><i style="background:${LANG[k]||'#7dd3fc'}"></i>${k} ${v}</span>`).join('');
+function drawLabels(focus){
+  const q = state.query.trim();
+  const boxes = [];
+  const order = state.nodes.slice().sort((a,b)=>labelPriority(b)-labelPriority(a));
+  for(const n of order){
+    const selected = n === state.selected;
+    const hovered = n === state.hover;
+    const isFile = n.kind === 'file';
+    const show = selected || hovered || (state.labels && (!isFile || state.view.k > .82 || state.nodes.length <= 20 || (q && matches(n))));
+    if(!show) continue;
+    const p = screenPos(n);
+    const r = Math.max(3.5, n.r*state.view.k);
+    const text = displayLabel(n);
+    const font = isFile ? FONT_FILE : FONT_UI;
+    ctx.font = font;
+    const tw = ctx.measureText(text).width;
+    const positions = [
+      {x:p.x, y:p.y+r+15, align:'center', base:'top'},
+      {x:p.x, y:p.y-r-8, align:'center', base:'bottom'},
+      {x:p.x+r+9, y:p.y, align:'left', base:'middle'},
+      {x:p.x-r-9, y:p.y, align:'right', base:'middle'}
+    ];
+    let chosen = null;
+    for(const pos of positions){
+      const x0 = pos.align === 'center' ? pos.x-tw/2 : (pos.align === 'right' ? pos.x-tw : pos.x);
+      const y0 = pos.base === 'middle' ? pos.y-7 : (pos.base === 'bottom' ? pos.y-14 : pos.y);
+      const box = {x:x0-3, y:y0-1, w:tw+6, h:16};
+      if(box.x < 5 || box.y < 5 || box.x+box.w > state.w-5 || box.y+box.h > state.h-5) continue;
+      if(boxes.some(b=>rectsOverlap(b,box))) continue;
+      if(state.nodes.some(m=>m!==n && circleHitsBox(screenPos(m), Math.max(3.5,m.r*state.view.k)+2, box))) continue;
+      chosen = {pos, box};
+      break;
+    }
+    if(!chosen) continue;
+    boxes.push(chosen.box);
+    ctx.save();
+    const dimmed = (q && !matches(n)) || (state.selected && !focus.has(n.id));
+    ctx.globalAlpha = dimmed ? .2 : 1;
+    ctx.textAlign = chosen.pos.align;
+    ctx.textBaseline = chosen.pos.base;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = STAGE;
+    ctx.strokeText(text, chosen.pos.x, chosen.pos.y);
+    ctx.fillStyle = selected ? ACCENT : INK;
+    ctx.fillText(text, chosen.pos.x, chosen.pos.y);
+    ctx.restore();
+  }
 }
-function updateHead(){
-  document.getElementById('repo').textContent=DATA.meta.repo;
-  document.getElementById('stats').textContent=`${fmt(DATA.meta.files)} files · ${fmt(DATA.meta.loc)} LOC · ${fmt(DATA.meta.symbols)} symbols · ${DATA.meta.commit}`;
+function labelPriority(n){
+  if(n === state.selected) return 100;
+  if(n === state.hover) return 90;
+  if(n.kind === 'root' || n.kind === 'hub' || n.kind === 'module') return 50;
+  return 10 + (n.rank || 0)*100;
 }
-function showDefault(){
-  panel.innerHTML=`<h2>CodeAtlas</h2>
-  <p class="big">${DATA.meta.repo}</p>
-  <p class="sub">Generated ${DATA.meta.generated} · v${DATA.meta.tool}</p>
-  <div class="kv">
-    <span>Files</span><span>${fmt(DATA.meta.files)}</span>
-    <span>Lines</span><span>${fmt(DATA.meta.loc)}</span>
-    <span>Symbols</span><span>${fmt(DATA.meta.symbols)}</span>
-    <span>Edges</span><span>${fmt(DATA.meta.edges)}</span>
-  </div>
-  <h2>How to read</h2>
-  <p class="small">Node size = lines of code. Color = dominant language. Arrows point from a file/module to what it imports. Click a node to inspect; use the search box to highlight a symbol.</p>
-  <hr>
-  <h2>Switch view</h2>
-  <p class="small">Modules gives the architecture. Files gives the top ${DATA.files.nodes.length} connected code files by PageRank.</p>`;
+
+function resize(){
+  const rect = canvas.getBoundingClientRect();
+  state.w = rect.width; state.h = rect.height;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.max(1, Math.round(rect.width*dpr));
+  canvas.height = Math.max(1, Math.round(rect.height*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(!state.userMoved && state.nodes.length) fitView();
+  else requestDraw();
 }
-function chip(text,fn){
-  const el=document.createElement('span'); el.className='chip'+(fn?' link':''); el.textContent=text;
-  if(fn) el.onclick=fn; return el;
+window.addEventListener('resize', resize);
+
+function zoomBy(factor, cx = state.w/2, cy = state.h/2){
+  const k2 = clamp(state.view.k*factor, .18, 4);
+  const wx = (cx-(state.w/2+state.view.x))/state.view.k;
+  const wy = (cy-(state.h/2+state.view.y))/state.view.k;
+  state.view.x = cx-state.w/2-wx*k2;
+  state.view.y = cy-state.h/2-wy*k2;
+  state.view.k = k2;
+  state.userMoved = true;
+  requestDraw();
+}
+
+function updateChrome(){
+  document.title = `${DATA.meta.repo} · CodeAtlas`;
+  document.getElementById('repo').textContent = DATA.meta.repo;
+  document.getElementById('repo-meta').textContent = `${DATA.meta.files} files · ${fmt(DATA.meta.loc)} LOC · ${DATA.meta.commit}`;
+  document.getElementById('n-modules').textContent = DATA.modules.nodes.length;
+  document.getElementById('n-files').textContent = DATA.files.nodes.length;
+  document.getElementById('mode-modules').setAttribute('aria-pressed', state.mode === 'modules');
+  document.getElementById('mode-files').setAttribute('aria-pressed', state.mode === 'files');
+  const deps = state.mode === 'modules' ? DATA.modules.links.length : DATA.files.links.length;
+  const count = state.mode === 'modules' ? DATA.modules.nodes.length : DATA.files.nodes.length;
+  const noun = state.mode === 'modules' ? 'modules' : 'files';
+  const kinds = new Set(state.links.filter(l=>l.k !== 'contains').map(l=>l.k));
+  const styleBits = [];
+  if(kinds.has('i')) styleBits.push('solid = import');
+  if(kinds.has('c')) styleBits.push('dashed = call');
+  styleBits.push('dotted = membership');
+  mapNote.replaceChildren();
+  mapNote.append(h('strong', null, `${count} ${noun}`));
+  mapNote.append(document.createTextNode(deps ? ` · ${deps} dependency edge${deps===1?'':'s'}` : ' · containment only'));
+  mapNote.append(h('span','foot-key',' · '+styleBits.join(' · ')));
+  canvas.setAttribute('aria-label', `Code dependency map: ${count} ${noun}, ${deps} dependency edges. Use the atlas index panel for details.`);
+}
+function updateSearchCount(){
+  const q = state.query.trim();
+  if(!q){ document.getElementById('search-count').textContent = ''; return; }
+  const n = state.nodes.filter(m=>m.kind !== 'root' && matches(m)).length;
+  document.getElementById('search-count').textContent = n ? `${n} match${n===1?'':'es'}` : 'No matches';
+}
+
+function factList(items){
+  const dl = h('dl','facts');
+  for(const [key,value] of items){
+    const row = h('div');
+    row.append(h('dt',null,key), h('dd',null,value));
+    dl.append(row);
+  }
+  return dl;
+}
+function sectionTitle(title, count){
+  const row = h('h2','section-title');
+  row.append(h('span',null,title));
+  if(count !== undefined && count !== null) row.append(h('span','count',count));
+  return row;
+}
+function legendItem(kind, title, body){
+  const li = h('li');
+  li.append(h('span','swatch '+kind));
+  const txt = h('span');
+  txt.append(h('b',null,title), document.createTextNode(' '+body));
+  li.append(txt);
+  return li;
+}
+function panelBack(label, target){
+  const btn = h('button','back', '← '+label);
+  btn.type = 'button';
+  btn.onclick = ()=>select(target);
+  return btn;
+}
+function relKindLabel(k){ return k === 'i' ? 'import' : (k === 'c' ? 'call' : 'contains'); }
+function relationRow(target, kind, direction){
+  const node = resolveNode(target);
+  if(!node) return null;
+  const li = h('li');
+  const btn = h('button','row');
+  btn.type = 'button';
+  const name = h('span','row-name');
+  name.append(h('span','row-kind', relKindLabel(kind)), document.createTextNode((direction ? direction+' ' : '')+displayLabel(node)));
+  btn.append(name, h('span','row-meta', node.kind === 'file' ? fmt(node.loc||0)+' LOC' : `${node.files||1} files`));
+  btn.onclick = ()=>select(node);
+  li.append(btn);
+  return li;
+}
+function relationGroups(n){
+  const groups = new Map();
+  for(const l of state.links){
+    if(l.k === 'contains' || (l.s !== n.id && l.t !== n.id)) continue;
+    const outgoing = l.s === n.id;
+    const other = outgoing ? l.t : l.s;
+    const key = other+'|'+l.k;
+    const group = groups.get(key) || {other, kind:l.k, out:false, inc:false};
+    if(outgoing) group.out = true; else group.inc = true;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a,b)=>a.other.localeCompare(b.other) || a.kind.localeCompare(b.kind));
+}
+function directionMark(group){
+  return group.out && group.inc ? '↔' : (group.out ? '→' : '←');
+}
+
+function showOverview(){
+  panel.replaceChildren();
+  const kicker = h('div','panel-kicker');
+  kicker.append(h('span',null,'Atlas index'), h('span','v','v'+DATA.meta.tool));
+  panel.append(kicker);
+  panel.append(h('h1','panel-title',DATA.meta.repo));
+  panel.append(h('p','panel-lede','A local map of modules, files, and static dependencies. Read the shape before opening the code.'));
+  panel.append(factList([
+    ['Files', fmt(DATA.meta.files)],
+    ['Lines', fmt(DATA.meta.loc)],
+    ['Symbols', fmt(DATA.meta.symbols)],
+    ['Symbol edges', fmt(DATA.meta.edges)]
+  ]));
+  panel.append(h('div','rule'));
+  panel.append(sectionTitle('How to read'));
+  const legend = h('ul','legend-list');
+  legend.append(
+    legendItem('hub','Module hub','groups files. Size follows lines of code.'),
+    legendItem('file','File','colored by language; size follows LOC.'),
+    legendItem('dep','Dependency','solid import or dashed call; arrow points to the target.'),
+    legendItem('contain','Containment','dotted line shows module membership.')
+  );
+  panel.append(legend);
+  const langs = Object.entries(DATA.meta.languages || {}).sort((a,b)=>b[1]-a[1]);
+  if(langs.length){
+    panel.append(sectionTitle('Languages', langs.length));
+    const list = h('ul','langs');
+    for(const [name,count] of langs.slice(0,9)){
+      const li = h('li');
+      const dot = h('span','dot'); dot.style.background = LANG[name] || '#7a7b74';
+      li.append(dot, h('span','name',name), h('span','n',count));
+      list.append(li);
+    }
+    panel.append(list);
+  }
+  panel.append(h('p','fine',`Generated ${DATA.meta.generated} · commit ${DATA.meta.commit} · v${DATA.meta.tool}`));
+}
+function showModule(n){
+  const m = DATA.modules.nodes.find(x=>x.id === n.id) || n;
+  const files = DATA.files.nodes.filter(f=>f.module === m.id);
+  panel.replaceChildren();
+  panel.append(panelBack('Atlas index', null));
+  panel.append(h('p','crumb','Module'));
+  panel.append(h('h1','panel-title',displayLabel(n)));
+  panel.append(h('p','panel-path',`${m.files} files · ${fmt(m.loc)} lines`));
+  panel.append(factList([
+    ['Files in module', m.files],
+    ['Lines', fmt(m.loc)],
+    ['Influence', (m.rank||0).toFixed(4)],
+    ['Language', topLang(m)]
+  ]));
+  if(files.length){
+    panel.append(sectionTitle('Files in this view', files.length));
+    const list = h('ul','rows');
+    for(const f of files.slice().sort((a,b)=>(b.loc||0)-(a.loc||0))){
+      const li = h('li');
+      const btn = h('button','row');
+      btn.type = 'button';
+      btn.append(h('span','row-name',f.label||f.id), h('span','row-meta',fmt(f.loc||0)+' LOC'));
+      btn.onclick = ()=>openFile(f.id);
+      li.append(btn); list.append(li);
+    }
+    panel.append(list);
+    if(files.length < m.files) panel.append(h('p','fine',`Showing ${files.length} of ${m.files} files in this view.`));
+  }
+  const rels = relationGroups(n);
+  panel.append(sectionTitle('Relations', rels.length));
+  if(rels.length){
+    const list = h('ul','rows');
+    for(const group of rels){
+      const row = relationRow(group.other, group.kind, directionMark(group));
+      if(row) list.append(row);
+    }
+    panel.append(list);
+  } else {
+    panel.append(h('p','empty-note','No cross-module dependencies detected.'));
+  }
+  if(m.symbols && m.symbols.length){
+    panel.append(sectionTitle('Key symbols'));
+    const list = h('ul','symbols');
+    for(const sym of m.symbols){
+      const li = h('li');
+      const btn = h('button',null,sym);
+      btn.type = 'button';
+      btn.onclick = ()=>focusSymbol(sym);
+      li.append(btn); list.append(li);
+    }
+    panel.append(list);
+  }
+}
+function showFile(n){
+  const hub = state.moduleHub.get(n.module);
+  panel.replaceChildren();
+  panel.append(panelBack(hub ? displayLabel(hub) : 'Atlas index', hub || null));
+  panel.append(h('p','crumb','File'));
+  panel.append(h('h1','panel-title',n.label||n.id));
+  panel.append(h('p','panel-path',n.path||n.id));
+  panel.append(factList([
+    ['Lines', fmt(n.loc||0)],
+    ['Influence', (n.rank||0).toFixed(4)],
+    ['Module', n.module],
+    ['Internal calls', fmt(n.calls||0)]
+  ]));
+  const rels = relationGroups(n);
+  panel.append(sectionTitle('Relations', rels.length));
+  if(rels.length){
+    const list = h('ul','rows');
+    for(const group of rels){
+      const row = relationRow(group.other, group.kind, directionMark(group));
+      if(row) list.append(row);
+    }
+    panel.append(list);
+  } else {
+    panel.append(h('p','empty-note','No cross-file dependencies detected. This node is connected to its module hub only.'));
+  }
+  if(n.symbols && n.symbols.length){
+    panel.append(sectionTitle('Symbols'));
+    const list = h('ul','symbols');
+    for(const sym of n.symbols){
+      const li = h('li');
+      const btn = h('button',null,sym);
+      btn.type = 'button';
+      btn.onclick = ()=>focusSymbol(sym);
+      li.append(btn); list.append(li);
+    }
+    panel.append(list);
+  }
+  if(n.tests) panel.append(h('p','fine','Indexed as a test file.'));
 }
 function select(n){
-  state.selected=n; state.anim||draw();
-  if(!n){showDefault();return;}
-  const isFile=state.mode==='files';
-  panel.innerHTML=`<h2>${isFile?'File':'Module'}</h2>
-  <p class="big">${n.label||n.id}</p>
-  <p class="sub">${isFile?n.path:n.id}</p>
-  <div class="kv">
-    <span>Files</span><span>${n.files??1}</span>
-    <span>Lines</span><span>${fmt(n.loc||0)}</span>
-    <span>Influence</span><span>${(n.rank||0).toFixed(4)}</span>
-    ${isFile?`<span>Module</span><span>${n.module}</span>`:''}
-    ${isFile?`<span>Test file</span><span>${n.tests?'yes':'no'}</span>`:''}
-  </div>`;
-  if(n.symbols&&n.symbols.length){
-    panel.insertAdjacentHTML('beforeend','<h2>Key symbols</h2><div class="chips" id="sym"></div>');
-    const box=panel.querySelector('#sym');
-    n.symbols.forEach(s=>box.appendChild(chip(s,()=>{search.value=s;state.query=s;draw();})));
-  }
-  if(n.deps&&n.deps.length){
-    panel.insertAdjacentHTML('beforeend','<h2>Depends on</h2><div class="chips" id="deps"></div>');
-    const box=panel.querySelector('#deps');
-    n.deps.forEach(d=>box.appendChild(chip(d,()=>{const t=state.byId.get(d); if(t) select(t);})));
-  }
-  panel.insertAdjacentHTML('beforeend',`<hr><p class="small">Tip: click another node to keep exploring. <a href="#" id="clear">clear selection</a></p>`);
-  const cl=panel.querySelector('#clear'); if(cl) cl.onclick=(e)=>{e.preventDefault();select(null);};
+  state.selected = n || null;
+  requestDraw();
+  if(!n || n.kind === 'root') showOverview();
+  else if(n.kind === 'hub' || n.kind === 'module') showModule(n);
+  else showFile(n);
+  live.textContent = n ? `${displayLabel(n)} selected` : 'Atlas overview';
 }
+function focusSymbol(sym){
+  search.value = sym;
+  state.query = sym;
+  updateSearchCount();
+  requestDraw();
+  search.focus();
+  search.select();
+}
+function openFile(id){
+  if(state.mode !== 'files') load('files');
+  const node = state.byId.get(id);
+  if(node) select(node);
+}
+
+function load(mode){
+  state.mode = mode;
+  state.selected = null;
+  state.hover = null;
+  const graph = buildGraph(mode);
+  state.nodes = graph.nodes;
+  state.links = graph.links;
+  state.byId = graph.byId;
+  state.moduleHub = graph.moduleHub;
+  layoutGraph(graph, mode);
+  state.view = {x:0,y:0,k:1};
+  state.userMoved = false;
+  updateChrome();
+  if(state.w) fitView(); else requestDraw();
+  showOverview();
+  updateSearchCount();
+  requestDraw();
+}
+
 function hit(e){
-  const r=canvas.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
   for(let i=state.nodes.length-1;i>=0;i--){
-    const n=state.nodes[i], p=screenPos(n), rr=Math.max(5,n.r*state.view.k);
-    if((mx-p.x)**2+(my-p.y)**2<=rr*rr) return n;
+    const n = state.nodes[i], p = screenPos(n);
+    const rr = Math.max(5, n.r*state.view.k+3);
+    if((mx-p.x)**2+(my-p.y)**2 <= rr*rr) return n;
   }
   return null;
 }
-let drag=null;
-canvas.addEventListener('pointerdown',e=>{
-  const n=hit(e);
-  if(n){select(n);return;}
-  drag={x:e.clientX,y:e.clientY,vx:state.view.x,vy:state.view.y};
-  canvas.classList.add('dragging'); canvas.setPointerCapture(e.pointerId);
+function setTooltip(n, e){
+  if(!n){ tooltip.classList.remove('show'); return; }
+  tooltip.replaceChildren();
+  tooltip.append(h('div','tip-name',displayLabel(n)));
+  const meta = n.kind === 'file'
+    ? `${n.module} · ${fmt(n.loc||0)} LOC${n.calls?' · '+n.calls+' internal calls':''}`
+    : `${n.files||1} files · ${fmt(n.loc||0)} LOC`;
+  tooltip.append(h('div','tip-meta',meta));
+  const rect = canvas.getBoundingClientRect();
+  let x = e.clientX-rect.left+14, y = e.clientY-rect.top+13;
+  tooltip.classList.add('show');
+  const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+  if(x+tw > state.w-10) x = e.clientX-rect.left-tw-14;
+  if(y+th > state.h-10) y = e.clientY-rect.top-th-13;
+  tooltip.style.left = Math.max(8,x)+'px';
+  tooltip.style.top = Math.max(8,y)+'px';
+}
+
+let drag = null;
+canvas.addEventListener('pointerdown', e=>{
+  const n = hit(e);
+  if(n){ select(n); return; }
+  drag = {x:e.clientX, y:e.clientY, vx:state.view.x, vy:state.view.y, moved:false};
+  canvas.classList.add('dragging');
+  canvas.setPointerCapture(e.pointerId);
 });
-canvas.addEventListener('pointermove',e=>{
+canvas.addEventListener('pointermove', e=>{
   if(drag){
-    state.view.x=drag.vx+(e.clientX-drag.x);
-    state.view.y=drag.vy+(e.clientY-drag.y);
-    state.anim||draw();
+    const dx = e.clientX-drag.x, dy = e.clientY-drag.y;
+    if(Math.abs(dx)+Math.abs(dy) > 3) drag.moved = true;
+    state.view.x = drag.vx+dx;
+    state.view.y = drag.vy+dy;
+    state.userMoved = true;
+    tooltip.classList.remove('show');
+    requestDraw();
     return;
   }
-  const n=hit(e);
-  state.hover=n;
-  if(n){
-    const p=screenPos(n), r=canvas.getBoundingClientRect();
-    tooltip.style.opacity=1;
-    tooltip.style.left=(e.clientX-r.left+14)+'px';
-    tooltip.style.top=(e.clientY-r.top+12)+'px';
-    tooltip.textContent=`${n.label||n.id} · ${fmt(n.loc||0)} LOC`+(n.files?` · ${n.files} files`:'');
-  } else tooltip.style.opacity=0;
+  const n = hit(e);
+  if(n !== state.hover){ state.hover = n; requestDraw(); }
+  setTooltip(n, e);
+  canvas.style.cursor = n ? 'pointer' : 'grab';
 });
-canvas.addEventListener('pointerup',()=>{drag=null;canvas.classList.remove('dragging');});
-canvas.addEventListener('pointerleave',()=>{tooltip.style.opacity=0;});
-canvas.addEventListener('wheel',e=>{
+canvas.addEventListener('pointerup', e=>{
+  if(drag && !drag.moved){
+    select(null);
+    tooltip.classList.remove('show');
+  }
+  drag = null;
+  canvas.classList.remove('dragging');
+  canvas.style.cursor = state.hover ? 'pointer' : 'grab';
+});
+canvas.addEventListener('pointerleave', ()=>{
+  state.hover = null;
+  drag = null;
+  tooltip.classList.remove('show');
+  requestDraw();
+});
+canvas.addEventListener('wheel', e=>{
   e.preventDefault();
-  const r=canvas.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
-  const k2=clamp(state.view.k*Math.exp(-e.deltaY*0.0012),0.22,4);
-  const wx=(mx-(state.w/2+state.view.x))/state.view.k;
-  const wy=(my-(state.h/2+state.view.y))/state.view.k;
-  state.view.x=mx-state.w/2-wx*k2;
-  state.view.y=my-state.h/2-wy*k2;
-  state.view.k=k2;
-  state.anim||draw();
-},{passive:false});
-search.addEventListener('input',()=>{state.query=search.value;state.anim||draw();});
-document.getElementById('mode-modules').onclick=()=>setMode('modules');
-document.getElementById('mode-files').onclick=()=>setMode('files');
-function setMode(m){
-  document.getElementById('mode-modules').classList.toggle('on',m==='modules');
-  document.getElementById('mode-files').classList.toggle('on',m==='files');
-  load(m);
+  const rect = canvas.getBoundingClientRect();
+  zoomBy(Math.exp(-e.deltaY*.0012), e.clientX-rect.left, e.clientY-rect.top);
+}, {passive:false});
+
+search.addEventListener('input', ()=>{
+  state.query = search.value.trim();
+  updateSearchCount();
+  requestDraw();
+});
+document.getElementById('mode-modules').onclick = ()=>setMode('modules');
+document.getElementById('mode-files').onclick = ()=>setMode('files');
+function setMode(mode){
+  if(mode === state.mode) return;
+  load(mode);
 }
-document.getElementById('reset').onclick=()=>{fitView();state.anim||draw();};
-document.getElementById('labels').onclick=e=>{state.labels=!state.labels;e.target.classList.toggle('on',state.labels);state.anim||draw();};
-window.addEventListener('keydown',e=>{if(e.key==='Escape'){search.value='';state.query='';select(null);draw();}});
+document.getElementById('labels').onclick = e=>{
+  state.labels = !state.labels;
+  e.currentTarget.setAttribute('aria-pressed', state.labels);
+  requestDraw();
+};
+document.getElementById('reset').onclick = ()=>{ fitView(); };
+document.getElementById('brand').onclick = ()=>{ select(null); fitView(); };
+document.getElementById('zoom-in').onclick = ()=>zoomBy(1.2);
+document.getElementById('zoom-out').onclick = ()=>zoomBy(1/1.2);
+document.getElementById('zoom-fit').onclick = ()=>fitView();
+window.addEventListener('keydown', e=>{
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const typing = e.target && e.target.matches && e.target.matches('input,textarea');
+  if(e.key === 'Escape'){
+    if(state.query){ search.value=''; state.query=''; updateSearchCount(); requestDraw(); }
+    else select(null);
+    return;
+  }
+  if(typing) return;
+  if(e.key === '/'){ e.preventDefault(); search.focus(); }
+  else if(e.key === '0'){ e.preventDefault(); fitView(); }
+  else if(e.key === '+' || e.key === '='){ e.preventDefault(); zoomBy(1.2); }
+  else if(e.key === '-'){ e.preventDefault(); zoomBy(1/1.2); }
+  else if(e.key.toLowerCase() === 'm'){ setMode('modules'); }
+  else if(e.key.toLowerCase() === 'f'){ setMode('files'); }
+});
+
+const hashMode = location.hash.replace(/^#\/?/,'');
+const initialMode = (hashMode === 'files' || hashMode === 'modules') ? hashMode : (START_MODE === 'files' ? 'files' : 'modules');
 resize();
-const startView=((new URLSearchParams(location.search).get('view')||location.hash.replace(/^#\/?/,''))==='files')?'files':'modules';
-document.getElementById('mode-modules').classList.toggle('on',startView==='modules');
-document.getElementById('mode-files').classList.toggle('on',startView==='files');
-load(startView);
+load(initialMode);
 </script>
 </body>
 </html>
 """
 
 
-def render_html(index, top=80):
+def render_html(index, top=80, start_mode="modules"):
     payload = json.dumps(html_data(index, top), ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("</", "<\\/")
-    return HTML_TEMPLATE.replace("/*__ATLAS_DATA__*/null", payload)
+    mode = start_mode if start_mode in ("modules", "files") else "modules"
+    return (
+        HTML_TEMPLATE
+        .replace("/*__ATLAS_DATA__*/null", payload)
+        .replace("__START_MODE__", mode)
+    )
 
 
 def write_outputs(root, index, cfg):
@@ -2229,18 +3016,25 @@ def cmd_diagram(root, index, files_mode=False, top=60, open_browser=False, as_js
     mermaid = render_mermaid(index, mode, top)
     p = root / INDEX_DIR / "diagram.mmd"
     p.write_text(mermaid, encoding="utf-8")
-    html_doc = render_html(index, top)
+    html_doc = render_html(index, top, mode)
     h = root / INDEX_DIR / "atlas.html"
     h.write_text(html_doc, encoding="utf-8")
+    payload = html_data(index, top)[mode]
     if as_json:
-        print(json.dumps({"mermaid": str(p), "html": str(h), "nodes": len(html_data(index, top)[mode]["nodes"])}, indent=2))
+        print(json.dumps({
+            "mermaid": str(p),
+            "html": str(h),
+            "nodes": len(payload["nodes"]),
+            "links": len(payload["links"]),
+            "mode": mode,
+        }, indent=2))
     else:
         print(f"mermaid : {p}")
         print(f"html    : {h}")
-        print(f"mode    : {mode} · {len(html_data(index, top)[mode]['nodes'])} nodes")
+        print(f"mode    : {mode} · {len(payload['nodes'])} nodes · {len(payload['links'])} links")
     if open_browser:
         try:
-            webbrowser.open(h.resolve().as_uri())
+            webbrowser.open(h.resolve().as_uri() + ("#files" if mode == "files" else ""))
         except Exception:
             pass
     return 0

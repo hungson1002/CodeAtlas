@@ -143,16 +143,20 @@ files, and git HEAD; it does not hash every file.
 
 ## Visual map
 
-`atlas.html` embeds the node/link payload and a small canvas force simulation.
+`atlas.html` embeds the node/link payload and a deterministic canvas layout.
 No CDN, no build step, no server. Two views:
 
-- **Modules** — architecture, sized by LOC, colored by dominant language.
-- **Files** — top files by PageRank, import arrows, search, pan/zoom, inspector.
+- **Modules** — architecture, sized by LOC, colored by dominant language, with
+  dotted containment links from the repository root and aggregated import/call
+  edges between modules.
+- **Files** — code files grouped into module clusters, import arrows (solid),
+  cross-file calls (dashed), search, pan/zoom, and an inspector.
 
 `#files` opens the file view directly (a hash works on `file://` URLs; a query
-string is less reliable on Windows). Labels are shown for modules and for
-high-influence files at the default zoom. `fitView` frames the graph after the
-initial simulation so the first screenshot is not a cluster in the corner.
+string is less reliable on Windows). Labels are shown for modules and for files
+when they fit; selected nodes keep their labels. Layout is computed once from the
+index with no animation loop, so repeated captures are stable, and `fitView`
+frames the graph after layout.
 
 ## Deliberate non-goals
 

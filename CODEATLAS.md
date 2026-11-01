@@ -1,7 +1,7 @@
 # CodeAtlas
 
-> `CodeAtlas` · 14 files · 5.8k LOC · 127 symbols
-> Generated 2026-10-31 09:59:02 · commit `ae9d50c` · CodeAtlas v1.0.1
+> `CodeAtlas` · 14 files · 6.7k LOC · 128 symbols
+> Generated 2026-11-01 09:04:01 · commit `53ccf9b` · CodeAtlas v1.1.0
 > Languages: markdown 5 · config 3 · javascript 2 · python 2 · shell 2
 > Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`
 
@@ -15,23 +15,23 @@
 
 | Module | Files | LOC | Depends on | Key symbols |
 |---|---:|---:|---|---|
-| `scripts` | 3 | 2.8k | — | main, build_index, read_text |
+| `scripts` | 3 | 3.6k | — | main, build_index, read_text |
 | `bin` | 1 | 1.1k | — | — |
-| `.` | 5 | 603 | — | — |
-| `references` | 3 | 601 | — | — |
-| `tests` | 2 | 677 | — | write, AtlasCLITest |
+| `.` | 5 | 608 | — | — |
+| `references` | 3 | 605 | — | — |
+| `tests` | 2 | 692 | — | write, AtlasCLITest |
 
 ## Hot files
 
 | File | LOC | Importers |
 |---|---:|---:|
-| `scripts/atlas.py` | 2.5k | 0 |
+| `scripts/atlas.py` | 3.3k | 0 |
 | `bin/code-atlas.js` | 1.1k | 0 |
-| `tests/test_atlas.py` | 476 | 0 |
+| `tests/test_atlas.py` | 491 | 0 |
 | `tests/test_cli.cjs` | 201 | 0 |
 | `scripts/install.ps1` | 157 | 0 |
 | `scripts/install.sh` | 152 | 0 |
-| `README.md` | 270 | 0 |
+| `README.md` | 275 | 0 |
 | `SKILL.md` | 261 | 0 |
 
 ## Tests

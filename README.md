@@ -128,13 +128,18 @@ directory/module (`src/requests`). Add `--json` for machine-readable output.
 
 The interactive HTML map has two views:
 
-- **Modules** — architecture at a glance, sized by LOC and colored by language.
-- **Files** — top files by PageRank, with import arrows, search, pan/zoom, and
-  a click-through inspector for symbols and dependencies.
+- **Modules** — architecture at a glance. Module nodes are sized by LOC and
+  colored by language, with dotted membership links from the repository root.
+  Import and cross-file call edges are drawn between modules when they exist.
+- **Files** — code files grouped into module clusters, with import arrows (solid) and
+  cross-file calls (dashed). Dotted lines show which module owns each file.
+  Search, pan/zoom, and the click-through inspector work in both views.
 
-Open `.code-atlas/atlas.html` directly in a browser. Start in file view with
-`atlas.html#files`. Everything is embedded in one file; there is no CDN or
-server requirement.
+The layout is computed once from the index and kept stable, so nodes do not
+drift or flicker while the page is open. Open
+`.code-atlas/atlas.html` directly in a browser. Start in file view with
+`atlas.html#files` or `diagram --files`. Everything is embedded in one file;
+there is no CDN or server requirement.
 
 ## Benchmarks
 
@@ -227,7 +232,7 @@ Three layers, deliberately small:
 
 - **L0 — Map:** `CODEATLAS.md`, cheap enough to read at the start of every task.
 - **L1 — Graph:** local JSON index queried by `where`, `impact`, `path`, `pack`.
-- **L2 — Visual:** Mermaid and a self-contained HTML force graph.
+- **L2 — Visual:** Mermaid and a self-contained, deterministic HTML atlas.
 
 No graph DB, no embeddings, no build-time LLM, no mandatory external tools. The
 design borrows the useful parts of existing projects — incremental indexing and

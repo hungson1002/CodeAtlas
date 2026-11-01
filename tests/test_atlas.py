@@ -368,11 +368,26 @@ class AtlasCLITest(unittest.TestCase):
         self.assertTrue(Path(data["mermaid"]).exists())
         self.assertTrue(Path(data["html"]).exists())
         self.assertGreater(data["nodes"], 0)
+        self.assertEqual(data["mode"], "files")
+        self.assertGreater(data["links"], 0)
         html = Path(data["html"]).read_text(encoding="utf-8")
         self.assertIn("const DATA =", html)
+        self.assertIn('const START_MODE = "files";', html)
+        self.assertIn('"k":"i"', html)
         self.assertNotIn("<script src=", html)
+        self.assertNotIn("requestAnimationFrame(step)", html)
         mmd = Path(data["mermaid"]).read_text(encoding="utf-8")
         self.assertTrue(mmd.startswith("flowchart LR"))
+
+    def test_diagram_modules_mode_reports_links(self) -> None:
+        proc = self.atlas("diagram", "--top", "20", "--json")
+        data = json.loads(proc.stdout)
+        self.assertEqual(data["mode"], "modules")
+        self.assertGreater(data["nodes"], 0)
+        self.assertGreater(data["links"], 0)
+        html = Path(data["html"]).read_text(encoding="utf-8")
+        self.assertIn('const START_MODE = "modules";', html)
+        self.assertIn('"modules":{"nodes":', html)
 
     def test_doctor_fresh_stale_update(self) -> None:
         fresh = self.atlas("doctor", check=False)
