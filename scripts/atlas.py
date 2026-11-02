@@ -35,7 +35,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -1334,7 +1334,9 @@ def render_map(index, budget=3500):
         lines.append(f"> `{Path(index['root']).name}` · {stats['files']} files · {human(stats['loc'])} LOC · {stats['symbols']} symbols")
         lines.append(f"> Generated {index.get('generated','')} · commit `{index.get('git_head') or 'n/a'}` · CodeAtlas v{index.get('tool', VERSION)}")
         lines.append(f"> Languages: {lang_line or 'n/a'}")
-        lines.append(f"> Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`")
+        # Only promise a repo-relative command when this repository ships the engine.
+        atlas_cmd = "python scripts/atlas.py" if (Path(index["root"]) / "scripts" / "atlas.py").exists() else "atlas"
+        lines.append(f"> Refresh: `{atlas_cmd} update` · Query: `{atlas_cmd} where <symbol>`")
         lines.append("")
         lines.append("## Start here")
         lines.append("")
@@ -1800,11 +1802,17 @@ const search = document.getElementById('search');
 const mapNote = document.getElementById('map-note');
 const emptyBox = document.getElementById('empty');
 const live = document.getElementById('live');
+const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 const state = {
   mode: 'modules', nodes: [], links: [], byId: new Map(), moduleHub: new Map(),
   view: {x:0,y:0,k:1}, selected: null, hover: null, labels: true, query: '',
-  w: 0, h: 0, userMoved: false
+  w: 0, h: 0, userMoved: false, topFiles: new Set(), dupLabels: new Set(), enterAt: 0
 };
+const DUST = Array.from({length:30}, (_,i)=>{
+  const s = seedFrom('dust:'+i);
+  return {x:(s%997)/997, y:((s>>>10)%991)/991, r:.55+((s>>>20)%100)/100*1.25,
+          a:.035+((s>>>7)%60)/100*.07, sp:.35+((s>>>16)%100)/100*.9};
+});
 
 const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
@@ -1829,6 +1837,10 @@ function colorOf(n){ return LANG[topLang(n)] || '#7a7b74'; }
 function displayLabel(n){
   if(n.kind === 'root') return n.label;
   if(n.id === '.' && (n.kind === 'hub' || n.kind === 'module')) return 'root files';
+  if(n.kind === 'file' && state.dupLabels.has(n.label || n.id)){
+    const parts = (n.path || n.id).split('/');
+    if(parts.length > 1) return parts.slice(-2).join('/');
+  }
   return n.label || n.id;
 }
 function moduleRadius(n){ return clamp(15 + Math.sqrt(n.loc||1)/5.2 + Math.min(5,(n.files||1)*1.1), 17, 35); }
@@ -1933,21 +1945,35 @@ function placeRing(items, radius, startAngle, ax = 1, ay = 1){
     items[i].y = Math.sin(a)*radius*ay;
   }
 }
+function spiralOf(hub, files, maxFileR){
+  const avgR = files.reduce((s,f)=>s+f.r,0)/Math.max(1,files.length);
+  const spacing = Math.max(18, avgR*2 + 12);
+  return {start: hub.r + maxFileR + 16, spacing};
+}
+function clusterExtent(hub, files, maxFileR){
+  if(files.length <= 7) return hub.r + maxFileR + 26 + maxFileR;
+  const {start, spacing} = spiralOf(hub, files, maxFileR);
+  return start + spacing*Math.sqrt(files.length-1) + maxFileR;
+}
 function placeFiles(hub, files, maxFileR){
-  const orbit = hub.r + maxFileR + 30;
-  const perRing = Math.max(5, Math.floor((2*Math.PI*orbit)/(maxFileR*2+24)));
-  const rings = Math.max(1, Math.ceil(files.length/perRing));
-  files.sort((a,b)=>(b.loc||0)-(a.loc||0));
-  if(rings === 1){
-    placeRing(files, orbit, -Math.PI/2);
-  } else {
-    const inner = files.slice(0, perRing);
-    const outer = files.slice(perRing);
-    placeRing(inner, orbit, -Math.PI/2);
-    placeRing(outer, orbit + maxFileR*2 + 26, -Math.PI/2 + Math.PI/Math.max(outer.length,1));
+  files.sort((a,b)=>(b.rank||0)-(a.rank||0) || (b.loc||0)-(a.loc||0));
+  if(files.length <= 7){
+    const orbit = hub.r + maxFileR + 26;
+    placeRing(files, orbit, -Math.PI/2 + .35);
+    for(const f of files){ f.x += hub.x; f.y += hub.y; }
+    return orbit + maxFileR;
   }
-  for(const f of files){ f.x += hub.x; f.y += hub.y; }
-  return orbit + (rings-1)*(maxFileR*2+26) + maxFileR;
+  // A phyllotaxis spiral keeps dense modules compact without visible rings.
+  const {start, spacing} = spiralOf(hub, files, maxFileR);
+  const golden = Math.PI*(3-Math.sqrt(5));
+  const phase = (seedFrom(hub.id)%360)*Math.PI/180;
+  for(let i=0;i<files.length;i++){
+    const rad = start + spacing*Math.sqrt(i);
+    const a = phase + i*golden;
+    files[i].x = hub.x + Math.cos(a)*rad;
+    files[i].y = hub.y + Math.sin(a)*rad*.95;
+  }
+  return clusterExtent(hub, files, maxFileR);
 }
 function layoutGraph(graph, mode){
   const nodes = graph.nodes;
@@ -1966,10 +1992,7 @@ function layoutGraph(graph, mode){
     const clusters = hubs.map(hub=>{
       const files = nodes.filter(n=>n.kind === 'file' && n.module === hub.module);
       const maxFileR = files.reduce((m,f)=>Math.max(m,f.r), 6);
-      const orbit = hub.r + maxFileR + 30;
-      const perRing = Math.max(5, Math.floor((2*Math.PI*orbit)/(maxFileR*2+24)));
-      const rings = Math.max(1, Math.ceil(files.length/perRing));
-      const extent = orbit + (rings-1)*(maxFileR*2+26) + maxFileR;
+      const extent = clusterExtent(hub, files, maxFileR);
       return {hub, files, maxFileR, extent};
     });
     if(hubs.length === 1){
@@ -2013,6 +2036,15 @@ function requestDraw(){
   drawQueued = true;
   requestAnimationFrame(()=>{ drawQueued = false; draw(); });
 }
+let lastAnimFrame = 0;
+function animate(ts){
+  requestAnimationFrame(animate);
+  if(REDUCED || document.hidden) return;
+  if(ts - lastAnimFrame < 32) return;
+  lastAnimFrame = ts;
+  draw(ts);
+}
+requestAnimationFrame(animate);
 
 function rectsOverlap(a,b){
   return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
@@ -2023,62 +2055,103 @@ function circleHitsBox(p,r,box){
   const dx = p.x-nx, dy = p.y-ny;
   return dx*dx+dy*dy < r*r;
 }
-function drawClusterWashes(){
+function drawClusterWashes(t = 0){
   if(state.mode !== 'files') return;
   for(const hub of state.moduleHub.values()){
     if(!hub.extent) continue;
     const p = screenPos(hub);
     const r = (hub.extent+34)*state.view.k;
+    const ring = hub.extent*state.view.k;
     if(r < 12) continue;
     const color = colorOf(hub);
-    const g = ctx.createRadialGradient(p.x,p.y,r*.35,p.x,p.y,r);
+    const g = ctx.createRadialGradient(p.x,p.y,ring*.25,p.x,p.y,r);
     g.addColorStop(0,hexA(color,.10));
     g.addColorStop(1,hexA(color,0));
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fill();
+    if(ring > 24){
+      ctx.save();
+      ctx.globalAlpha = .22*entrance;
+      ctx.strokeStyle = hexA(color,.75);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2,8]);
+      ctx.lineDashOffset = -t*.012;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,ring,0,Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
-function draw(){
+let entrance = 1;
+function draw(t = performance.now()){
   if(!state.w || !state.h) return;
-  ctx.clearRect(0,0,state.w,state.h);
+  const time = t/1000, w = state.w, h = state.h;
+  ctx.clearRect(0,0,w,h);
   ctx.fillStyle = STAGE;
-  ctx.fillRect(0,0,state.w,state.h);
-  const glow = ctx.createRadialGradient(state.w*.46,state.h*.44,0,state.w*.46,state.h*.44,Math.max(state.w,state.h)*.72);
-  glow.addColorStop(0,'rgba(255,255,255,.045)');
-  glow.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0,0,state.w,state.h);
-  const gap = 28;
-  ctx.fillStyle = 'rgba(255,255,255,.055)';
-  for(let gx=gap/2; gx<state.w; gx+=gap){
-    for(let gy=gap/2; gy<state.h; gy+=gap) ctx.fillRect(gx,gy,1,1);
+  ctx.fillRect(0,0,w,h);
+
+  // Slow aurora washes keep the stage alive without moving the layout.
+  const aurora = [
+    [w*(.30+.025*Math.sin(time*.05)), h*(.16+.035*Math.cos(time*.04)), w*(.62+.03*Math.cos(time*.03)), 'rgba(53,96,255,.13)', 'rgba(53,96,255,.025)'],
+    [w*(.80+.02*Math.cos(time*.037)), h*(.80+.03*Math.sin(time*.033)), w*.52, 'rgba(255,90,54,.085)', 'rgba(255,90,54,.015)'],
+    [w*(.55+.03*Math.sin(time*.028)), h*(.52+.02*Math.cos(time*.045)), w*.44, 'rgba(72,190,178,.05)', 'rgba(72,190,178,0)']
+  ];
+  for(const [x,y,r,inner,outer] of aurora){
+    const g = ctx.createRadialGradient(x,y,0,x,y,Math.max(40,r));
+    g.addColorStop(0,inner); g.addColorStop(1,outer);
+    ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
   }
+
+  const gap = 30;
+  ctx.fillStyle = 'rgba(255,255,255,.042)';
+  for(let gx=gap/2; gx<w; gx+=gap){
+    for(let gy=gap/2; gy<h; gy+=gap) ctx.fillRect(gx,gy,1,1);
+  }
+
+  for(const d of DUST){
+    const x = (d.x + Math.sin(time*.11*d.sp + d.sp*7)*.004)*w;
+    const y = (d.y + Math.cos(time*.09*d.sp + d.sp*3)*.003)*h;
+    ctx.beginPath(); ctx.arc(x,y,d.r,0,Math.PI*2);
+    ctx.fillStyle = `rgba(180,205,255,${d.a})`; ctx.fill();
+  }
+
+  const vg = ctx.createRadialGradient(w*.5,h*.46,Math.min(w,h)*.18,w*.5,h*.5,Math.max(w,h)*.78);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(.62,'rgba(0,0,0,.10)'); vg.addColorStop(1,'rgba(0,0,0,.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0,0,w,h);
+
   if(!state.nodes.length){ emptyBox.hidden = false; return; }
   emptyBox.hidden = true;
-  drawClusterWashes();
+
+  entrance = REDUCED || !state.enterAt ? 1 : clamp((t-state.enterAt)/560,0,1);
+  entrance = 1-Math.pow(1-entrance,3);
+
+  drawClusterWashes(t);
   const selected = state.selected;
+  const focusNode = selected || state.hover;
   const q = state.query.trim();
   const focus = new Set();
-  if(selected){
-    focus.add(selected.id);
+  if(focusNode){
+    focus.add(focusNode.id);
     for(const l of state.links){
-      if(l.s === selected.id) focus.add(l.t);
-      if(l.t === selected.id) focus.add(l.s);
+      if(l.s === focusNode.id) focus.add(l.t);
+      if(l.t === focusNode.id) focus.add(l.s);
     }
   }
+  const dimAlpha = selected ? .14 : .3;
   for(const l of state.links){
-    const dim = q ? !(matches(l.a) || matches(l.b)) : (selected && !(focus.has(l.s) || focus.has(l.t)));
-    drawLink(l, !!dim, selected);
+    const dim = q ? !(matches(l.a) || matches(l.b)) : (focusNode && !(focus.has(l.s) || focus.has(l.t)));
+    drawLink(l, !!dim, focusNode, t, dimAlpha);
   }
   const ordered = state.nodes.slice().sort((a,b)=>nodeOrder(a)-nodeOrder(b));
   for(const n of ordered){
-    const dim = (q && !matches(n)) || (selected && !focus.has(n.id));
-    drawNode(n, !!dim, n === selected, n === state.hover);
+    const dim = (q && !matches(n)) || (focusNode && !focus.has(n.id));
+    drawNode(n, !!dim, n === selected, n === state.hover, t, dimAlpha);
   }
-  drawLabels(focus);
+  drawLabels(focus, t);
   ctx.globalAlpha = 1;
 }
 function nodeOrder(n){
@@ -2102,30 +2175,43 @@ function linkCurve(l){
   }
   return {a, b, cx:(a.x+b.x)/2 - dy/d*bend, cy:(a.y+b.y)/2 + dx/d*bend};
 }
-function drawLink(l, dim, selected){
+function drawLink(l, dim, focusNode, t, dimAlpha = .14){
   const {a,b,cx,cy} = linkCurve(l);
   const contains = l.k === 'contains';
   const call = l.k === 'c';
   const both = !contains && l.both;
   if(both && l.s > l.t) return;
-  const connected = selected && (l.s === selected.id || l.t === selected.id);
+  const connected = focusNode && (l.s === focusNode.id || l.t === focusNode.id);
   const pad = contains ? 2 : 4;
   const sa = trimToward(a, cx, cy, trimFor(l.a, pad));
   const sb = trimToward(b, cx, cy, trimFor(l.b, pad));
+  const base = contains ? (state.mode === 'files' ? .30 : .72) : (call ? .50 : .38);
   ctx.save();
-  ctx.globalAlpha = dim ? .04 : (connected ? 1 : (contains ? .9 : .72));
+  ctx.globalAlpha = (dim ? (state.selected ? .035 : .06) : (connected ? 1 : base)) * entrance;
   ctx.strokeStyle = contains ? '#606a7a' : (call ? ACCENT : '#8b95a7');
-  ctx.lineWidth = contains ? 1 : (call ? 1.25 : 1.1);
+  ctx.lineWidth = connected ? 1.55 : (contains ? 1 : (call ? 1.2 : 1.05));
   ctx.lineCap = 'round';
   ctx.setLineDash(contains ? [1.5,4.5] : (call ? [4.5,3.5] : []));
+  ctx.lineDashOffset = call ? -t*(connected ? .02 : .0035) : 0;
   ctx.beginPath();
   ctx.moveTo(sa.x,sa.y);
   ctx.quadraticCurveTo(cx,cy,sb.x,sb.y);
   ctx.stroke();
   ctx.setLineDash([]);
-  if(!contains){
+  if(!contains && !dim){
     arrowAt(sb, cx, cy);
     if(both) arrowAt(sa, cx, cy);
+  }
+  if(connected && !contains){
+    const u = ((t*.00040 + (seedFrom(l.s+'|'+l.t)%100)/100) % 1);
+    const v = 1-u;
+    const px = v*v*a.x + 2*v*u*cx + u*u*b.x;
+    const py = v*v*a.y + 2*v*u*cy + u*u*b.y;
+    ctx.fillStyle = call ? ACCENT : '#e6eeff';
+    ctx.shadowColor = call ? ACCENT : '#7ea6ff';
+    ctx.shadowBlur = 9;
+    ctx.beginPath(); ctx.arc(px,py,2.1,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
 }
@@ -2152,47 +2238,94 @@ function drawArrow(x,y,ux,uy,size){
   ctx.closePath();
   ctx.fill();
 }
-function drawNode(n, dim, selected, hovered){
+function drawNode(n, dim, selected, hovered, t, dimAlpha = .14){
   const p = screenPos(n);
-  const r = Math.max(3.5, n.r*state.view.k);
+  const r = Math.max(4.2, n.r*state.view.k);
   const color = colorOf(n);
+  const seed = seedFrom(n.id);
+  const pulse = .5+.5*Math.sin(t*.0012 + (seed%628)/100);
+  const hub = n.kind === 'hub' || n.kind === 'module';
   ctx.save();
-  ctx.globalAlpha = dim ? .14 : 1;
+  ctx.globalAlpha = (dim ? dimAlpha : 1) * entrance;
   if(selected || hovered){
     ctx.beginPath();
-    ctx.arc(p.x,p.y,r+6,0,Math.PI*2);
+    ctx.arc(p.x,p.y,r+7+pulse*2,0,Math.PI*2);
     ctx.fillStyle = hexA(ACCENT, selected ? .16 : .09);
     ctx.fill();
   }
   if(n.kind === 'root'){
+    const g = ctx.createRadialGradient(p.x,p.y,r*.4,p.x,p.y,r*3);
+    g.addColorStop(0,'rgba(238,241,245,.34)'); g.addColorStop(1,'rgba(238,241,245,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x,p.y,r*3,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = '#eef1f5'; ctx.fill();
     ctx.lineWidth = 1.6; ctx.strokeStyle = WHITE; ctx.stroke();
     ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2.4,r*.18),0,Math.PI*2);
     ctx.fillStyle = STAGE; ctx.fill();
-  } else if(n.kind === 'hub' || n.kind === 'module'){
-    ctx.beginPath(); ctx.arc(p.x,p.y,r+7,0,Math.PI*2);
-    ctx.fillStyle = hexA(color,.10); ctx.fill();
+    ctx.globalAlpha = (dim ? dimAlpha : .45) * entrance;
+    ctx.strokeStyle = 'rgba(255,255,255,.8)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2,7]);
+    ctx.lineDashOffset = -t*.008;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+9,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+  } else if(hub){
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+8+pulse*3,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.05+pulse*.05); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = hexA(color,.18); ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = color; ctx.stroke();
     ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2.2,r*.17),0,Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
+    ctx.globalAlpha = (dim ? dimAlpha : .5) * entrance;
+    ctx.strokeStyle = hexA(color,.85);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2,6]);
+    ctx.lineDashOffset = t*.012;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+7,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
   } else {
+    ctx.beginPath(); ctx.arc(p.x,p.y,r*2.35,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.07); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r*1.6,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.12); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(8,10,13,.7)'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x-r*.28,p.y-r*.28,Math.max(1,r*.3),0,Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,.32)'; ctx.fill();
   }
   if(selected){
-    ctx.beginPath(); ctx.arc(p.x,p.y,r+3.5,0,Math.PI*2);
-    ctx.lineWidth = 2; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.globalAlpha = entrance;
+    const sg = ctx.createRadialGradient(p.x,p.y,r*.6,p.x,p.y,r*4.4);
+    sg.addColorStop(0,hexA(ACCENT,.22)); sg.addColorStop(1,hexA(ACCENT,0));
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r*4.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+4,0,Math.PI*2);
+    ctx.lineWidth = 1.8; ctx.strokeStyle = ACCENT; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+8+pulse*2,0,Math.PI*2);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,5]);
+    ctx.lineDashOffset = -t*.03;
+    ctx.strokeStyle = hexA(ACCENT,.9);
+    ctx.stroke();
+    ctx.setLineDash([]);
   } else if(hovered){
-    ctx.beginPath(); ctx.arc(p.x,p.y,r+2.5,0,Math.PI*2);
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+3,0,Math.PI*2);
     ctx.lineWidth = 1.4; ctx.strokeStyle = WHITE; ctx.stroke();
   }
   ctx.restore();
 }
-function drawLabels(focus){
+function pillPath(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function drawLabels(focus, t = 0){
   const q = state.query.trim();
   const boxes = [];
   const order = state.nodes.slice().sort((a,b)=>labelPriority(b)-labelPriority(a));
@@ -2200,44 +2333,80 @@ function drawLabels(focus){
     const selected = n === state.selected;
     const hovered = n === state.hover;
     const isFile = n.kind === 'file';
-    const show = selected || hovered || (state.labels && (!isFile || state.view.k > .82 || state.nodes.length <= 20 || (q && matches(n))));
+    const top = isFile && state.topFiles.has(n.id);
+    const show = selected || hovered || (state.labels && (!isFile || top || state.view.k > .9 || state.nodes.length <= 20 || (q && matches(n))));
     if(!show) continue;
     const p = screenPos(n);
-    const r = Math.max(3.5, n.r*state.view.k);
+    const r = Math.max(4.2, n.r*state.view.k);
     const text = displayLabel(n);
-    const font = isFile ? FONT_FILE : FONT_UI;
+    const small = state.w < 560;
+    const font = `600 ${isFile ? (small ? 10 : 11.5) : (small ? 10.5 : 12)}px "Segoe UI",system-ui,sans-serif`;
     ctx.font = font;
     const tw = ctx.measureText(text).width;
-    const positions = [
-      {x:p.x, y:p.y+r+15, align:'center', base:'top'},
-      {x:p.x, y:p.y-r-8, align:'center', base:'bottom'},
-      {x:p.x+r+9, y:p.y, align:'left', base:'middle'},
-      {x:p.x-r-9, y:p.y, align:'right', base:'middle'}
-    ];
+    const hw = tw/2 + (small ? 6 : 7), ph = small ? 18 : 20;
+    const positions = [];
+    if(isFile){
+      positions.push(
+        {x:p.x, y:p.y+r+16},
+        {x:p.x, y:p.y-r-16},
+        {x:p.x+r+hw+6, y:p.y},
+        {x:p.x-r-hw-6, y:p.y}
+      );
+    } else if(n.kind === 'hub' && n.extent){
+      const out = n.extent*state.view.k + 17;
+      positions.push({x:p.x, y:p.y+out}, {x:p.x, y:p.y-out});
+      positions.push({x:p.x+r+hw+6, y:p.y}, {x:p.x-r-hw-6, y:p.y});
+      positions.push(
+        {x:p.x+out*.72, y:p.y+out*.72}, {x:p.x-out*.72, y:p.y+out*.72},
+        {x:p.x+out*.72, y:p.y-out*.72}, {x:p.x-out*.72, y:p.y-out*.72}
+      );
+    } else {
+      positions.push(
+        {x:p.x, y:p.y+r+16},
+        {x:p.x, y:p.y-r-16},
+        {x:p.x+r+hw+6, y:p.y},
+        {x:p.x-r-hw-6, y:p.y}
+      );
+      if(!isFile){
+        const out = r+26;
+        positions.push(
+          {x:p.x+out*.72, y:p.y+out*.72}, {x:p.x-out*.72, y:p.y+out*.72},
+          {x:p.x+out*.72, y:p.y-out*.72}, {x:p.x-out*.72, y:p.y-out*.72}
+        );
+      }
+    }
     let chosen = null;
     for(const pos of positions){
-      const x0 = pos.align === 'center' ? pos.x-tw/2 : (pos.align === 'right' ? pos.x-tw : pos.x);
-      const y0 = pos.base === 'middle' ? pos.y-7 : (pos.base === 'bottom' ? pos.y-14 : pos.y);
-      const box = {x:x0-3, y:y0-1, w:tw+6, h:16};
+      const box = {x:pos.x-hw, y:pos.y-ph/2, w:hw*2, h:ph};
       if(box.x < 5 || box.y < 5 || box.x+box.w > state.w-5 || box.y+box.h > state.h-5) continue;
       if(boxes.some(b=>rectsOverlap(b,box))) continue;
-      if(state.nodes.some(m=>m!==n && circleHitsBox(screenPos(m), Math.max(3.5,m.r*state.view.k)+2, box))) continue;
+      const force = selected || hovered || (state.w < 560 && !isFile);
+      if(!force && state.nodes.some(m=>circleHitsBox(screenPos(m), Math.max(4.2,m.r*state.view.k)+2, box))) continue;
       chosen = {pos, box};
       break;
     }
     if(!chosen) continue;
     boxes.push(chosen.box);
+    const dimmed = (q && !matches(n)) || (state.selected && !focus.has(n.id)) || (state.hover && n !== state.hover && !focus.has(n.id));
     ctx.save();
-    const dimmed = (q && !matches(n)) || (state.selected && !focus.has(n.id));
-    ctx.globalAlpha = dimmed ? .2 : 1;
-    ctx.textAlign = chosen.pos.align;
-    ctx.textBaseline = chosen.pos.base;
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = STAGE;
-    ctx.strokeText(text, chosen.pos.x, chosen.pos.y);
+    ctx.globalAlpha = (dimmed ? .16 : 1) * entrance;
+    const {box} = chosen;
+    pillPath(box.x,box.y,box.w,box.h,6);
+    ctx.fillStyle = selected ? 'rgba(38,14,9,.94)' : 'rgba(9,11,15,.74)';
+    ctx.fill();
+    ctx.strokeStyle = selected ? hexA(ACCENT,.55) : 'rgba(255,255,255,.10)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    if(isFile){
+      ctx.fillStyle = colorOf(n);
+      pillPath(box.x+1.5, box.y+4, 2, box.h-8, 1);
+      ctx.fill();
+    }
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = selected ? ACCENT : INK;
-    ctx.fillText(text, chosen.pos.x, chosen.pos.y);
+    ctx.fillText(text, chosen.pos.x, chosen.pos.y+.5);
     ctx.restore();
   }
 }
@@ -2245,6 +2414,7 @@ function labelPriority(n){
   if(n === state.selected) return 100;
   if(n === state.hover) return 90;
   if(n.kind === 'root' || n.kind === 'hub' || n.kind === 'module') return 50;
+  if(state.topFiles.has(n.id)) return 45;
   return 10 + (n.rank || 0)*100;
 }
 
@@ -2255,6 +2425,7 @@ function resize(){
   canvas.width = Math.max(1, Math.round(rect.width*dpr));
   canvas.height = Math.max(1, Math.round(rect.height*dpr));
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(state.nodes.length) refreshTopFiles();
   if(!state.userMoved && state.nodes.length) fitView();
   else requestDraw();
 }
@@ -2511,6 +2682,17 @@ function openFile(id){
   if(node) select(node);
 }
 
+function refreshTopFiles(){
+  const limit = state.w < 560 ? 5 : 8;
+  const files = state.nodes.filter(n=>n.kind === 'file');
+  const counts = new Map();
+  for(const f of files) counts.set(f.label || f.id, (counts.get(f.label || f.id) || 0) + 1);
+  state.dupLabels = new Set([...counts].filter(([,c])=>c > 1).map(([k])=>k));
+  state.topFiles = new Set(
+    files.sort((a,b)=>(b.rank||0)-(a.rank||0))
+      .slice(0,limit).map(n=>n.id)
+  );
+}
 function load(mode){
   state.mode = mode;
   state.selected = null;
@@ -2521,6 +2703,8 @@ function load(mode){
   state.byId = graph.byId;
   state.moduleHub = graph.moduleHub;
   layoutGraph(graph, mode);
+  refreshTopFiles();
+  state.enterAt = REDUCED ? 0 : performance.now();
   state.view = {x:0,y:0,k:1};
   state.userMoved = false;
   updateChrome();
@@ -3126,6 +3310,7 @@ def main(argv=None):
     add_common(p)
     p.add_argument("--force", action="store_true")
     p.add_argument("--no-build", action="store_true")
+    p.add_argument("--no-git", action="store_true")
 
     p = sub.add_parser("build", help="build the index (incremental)")
     add_common(p)

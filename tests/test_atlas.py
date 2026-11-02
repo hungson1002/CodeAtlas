@@ -309,6 +309,8 @@ class AtlasCLITest(unittest.TestCase):
         self.assertIn("## Modules", proc.stdout)
         self.assertIn("services", proc.stdout)
         self.assertNotIn("examples/demo", proc.stdout)
+        self.assertIn("`atlas update`", proc.stdout)
+        self.assertNotIn("python scripts/atlas.py", proc.stdout)
 
     def test_where_json(self) -> None:
         proc = self.atlas("where", "AuthService.login", "--json")
@@ -483,6 +485,25 @@ class AtlasCLITest(unittest.TestCase):
             gitignore = (root / ".gitignore").read_text(encoding="utf-8")
             self.assertIn("existing", gitignore)
             self.assertIn(".code-atlas/", gitignore)
+
+    def test_init_builds_index(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-init-build-") as tmp:
+            root = Path(tmp)
+            write(root, "app.py", "def main():\n    return 1\n")
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(ATLAS), "init", "--no-git"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=120,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue((root / "CODEATLAS.md").exists())
+            self.assertTrue((root / ".code-atlas" / "index.json").exists())
 
 
 if __name__ == "__main__":
