@@ -35,7 +35,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -1772,7 +1772,7 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
     </div>
     <div class="platefoot">
       <p class="map-note" id="map-note"></p>
-      <span class="hint">drag to pan · scroll to zoom · click to inspect</span>
+      <span class="hint">drag to pan · scroll to zoom · hover to trace · click to inspect</span>
       <div class="zoom" role="group" aria-label="Map zoom">
         <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
         <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
@@ -1806,12 +1806,12 @@ const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-moti
 const state = {
   mode: 'modules', nodes: [], links: [], byId: new Map(), moduleHub: new Map(),
   view: {x:0,y:0,k:1}, selected: null, hover: null, labels: true, query: '',
-  w: 0, h: 0, userMoved: false, topFiles: new Set(), dupLabels: new Set(), enterAt: 0
+  w: 0, h: 0, userMoved: false, topFiles: new Set(), dupLabels: new Set(), shownByModule: new Map(), enterAt: 0
 };
 const DUST = Array.from({length:30}, (_,i)=>{
   const s = seedFrom('dust:'+i);
   return {x:(s%997)/997, y:((s>>>10)%991)/991, r:.55+((s>>>20)%100)/100*1.25,
-          a:.035+((s>>>7)%60)/100*.07, sp:.35+((s>>>16)%100)/100*.9};
+          a:.022+((s>>>7)%60)/100*.05, sp:.35+((s>>>16)%100)/100*.9};
 });
 
 const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
@@ -1837,6 +1837,9 @@ function colorOf(n){ return LANG[topLang(n)] || '#7a7b74'; }
 function displayLabel(n){
   if(n.kind === 'root') return n.label;
   if(n.id === '.' && (n.kind === 'hub' || n.kind === 'module')) return 'root files';
+  if((n.kind === 'hub' || n.kind === 'module') && state.mode === 'files' && state.w >= 560 && state.shownByModule.get(n.module) > 1){
+    return `${n.label || n.id} · ${state.shownByModule.get(n.module)}`;
+  }
   if(n.kind === 'file' && state.dupLabels.has(n.label || n.id)){
     const parts = (n.path || n.id).split('/');
     if(parts.length > 1) return parts.slice(-2).join('/');
@@ -2096,9 +2099,9 @@ function draw(t = performance.now()){
 
   // Slow aurora washes keep the stage alive without moving the layout.
   const aurora = [
-    [w*(.30+.025*Math.sin(time*.05)), h*(.16+.035*Math.cos(time*.04)), w*(.62+.03*Math.cos(time*.03)), 'rgba(53,96,255,.13)', 'rgba(53,96,255,.025)'],
-    [w*(.80+.02*Math.cos(time*.037)), h*(.80+.03*Math.sin(time*.033)), w*.52, 'rgba(255,90,54,.085)', 'rgba(255,90,54,.015)'],
-    [w*(.55+.03*Math.sin(time*.028)), h*(.52+.02*Math.cos(time*.045)), w*.44, 'rgba(72,190,178,.05)', 'rgba(72,190,178,0)']
+    [w*(.30+.025*Math.sin(time*.05)), h*(.16+.035*Math.cos(time*.04)), w*(.62+.03*Math.cos(time*.03)), 'rgba(53,96,255,.095)', 'rgba(53,96,255,.018)'],
+    [w*(.80+.02*Math.cos(time*.037)), h*(.80+.03*Math.sin(time*.033)), w*.52, 'rgba(255,90,54,.058)', 'rgba(255,90,54,.010)'],
+    [w*(.55+.03*Math.sin(time*.028)), h*(.52+.02*Math.cos(time*.045)), w*.44, 'rgba(72,190,178,.032)', 'rgba(72,190,178,0)']
   ];
   for(const [x,y,r,inner,outer] of aurora){
     const g = ctx.createRadialGradient(x,y,0,x,y,Math.max(40,r));
@@ -2107,7 +2110,7 @@ function draw(t = performance.now()){
   }
 
   const gap = 30;
-  ctx.fillStyle = 'rgba(255,255,255,.042)';
+  ctx.fillStyle = 'rgba(255,255,255,.030)';
   for(let gx=gap/2; gx<w; gx+=gap){
     for(let gy=gap/2; gy<h; gy+=gap) ctx.fillRect(gx,gy,1,1);
   }
@@ -2115,12 +2118,13 @@ function draw(t = performance.now()){
   for(const d of DUST){
     const x = (d.x + Math.sin(time*.11*d.sp + d.sp*7)*.004)*w;
     const y = (d.y + Math.cos(time*.09*d.sp + d.sp*3)*.003)*h;
+    const twinkle = .72 + .28*Math.sin(time*.45 + d.sp*9);
     ctx.beginPath(); ctx.arc(x,y,d.r,0,Math.PI*2);
-    ctx.fillStyle = `rgba(180,205,255,${d.a})`; ctx.fill();
+    ctx.fillStyle = `rgba(180,205,255,${d.a*twinkle})`; ctx.fill();
   }
 
   const vg = ctx.createRadialGradient(w*.5,h*.46,Math.min(w,h)*.18,w*.5,h*.5,Math.max(w,h)*.78);
-  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(.62,'rgba(0,0,0,.10)'); vg.addColorStop(1,'rgba(0,0,0,.42)');
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(.62,'rgba(0,0,0,.08)'); vg.addColorStop(1,'rgba(0,0,0,.36)');
   ctx.fillStyle = vg; ctx.fillRect(0,0,w,h);
 
   if(!state.nodes.length){ emptyBox.hidden = false; return; }
@@ -2162,11 +2166,11 @@ function nodeOrder(n){
 function linkCurve(l){
   const a = screenPos(l.a), b = screenPos(l.b);
   const dx = b.x-a.x, dy = b.y-a.y, d = Math.hypot(dx,dy) || 1;
-  let bend = l.k === 'contains' ? 0 : Math.min(44, d*.13) * ((seedFrom(l.s+'|'+l.t) & 1) ? 1 : -1);
+  let bend = l.k === 'contains' ? 0 : Math.min(34, d*.095) * ((seedFrom(l.s+'|'+l.t) & 1) ? 1 : -1);
   if(l.k !== 'contains'){
     const cross = state.mode === 'modules' || (l.a.module && l.b.module && l.a.module !== l.b.module);
     if(cross){
-      bend = Math.min(58, 20 + d*.10);
+      bend = Math.min(46, 14 + d*.075);
       const ox = state.w/2 + state.view.x, oy = state.h/2 + state.view.y;
       const mx = (a.x+b.x)/2 - ox, my = (a.y+b.y)/2 - oy;
       const nx = -dy/d, ny = dx/d;
@@ -2185,9 +2189,11 @@ function drawLink(l, dim, focusNode, t, dimAlpha = .14){
   const pad = contains ? 2 : 4;
   const sa = trimToward(a, cx, cy, trimFor(l.a, pad));
   const sb = trimToward(b, cx, cy, trimFor(l.b, pad));
-  const base = contains ? (state.mode === 'files' ? .30 : .72) : (call ? .50 : .38);
+  const weight = Math.max(1, l.w || 1);
+  const strength = contains ? 1 : (state.mode === 'files' ? .42 + .58*Math.min(1, weight/4) : .72 + .28*Math.min(1, weight/4));
+  const base = contains ? (state.mode === 'files' ? .24 : .64) : (call ? .50 : .36);
   ctx.save();
-  ctx.globalAlpha = (dim ? (state.selected ? .035 : .06) : (connected ? 1 : base)) * entrance;
+  ctx.globalAlpha = (dim ? (state.selected ? .035 : .06) : (connected ? 1 : base*strength)) * entrance;
   ctx.strokeStyle = contains ? '#606a7a' : (call ? ACCENT : '#8b95a7');
   ctx.lineWidth = connected ? 1.55 : (contains ? 1 : (call ? 1.2 : 1.05));
   ctx.lineCap = 'round';
@@ -2199,8 +2205,11 @@ function drawLink(l, dim, focusNode, t, dimAlpha = .14){
   ctx.stroke();
   ctx.setLineDash([]);
   if(!contains && !dim){
-    arrowAt(sb, cx, cy);
-    if(both) arrowAt(sa, cx, cy);
+    // Keep dense clusters readable when zoomed out; let arrows grow when zoomed in.
+    const arrowScale = clamp(state.view.k, .6, 1.15);
+    const arrowSize = (connected ? 6.4 : 5.2) * arrowScale;
+    arrowAt(sb, cx, cy, arrowSize);
+    if(both) arrowAt(sa, cx, cy, arrowSize);
   }
   if(connected && !contains){
     const u = ((t*.00040 + (seedFrom(l.s+'|'+l.t)%100)/100) % 1);
@@ -2223,11 +2232,11 @@ function trimToward(pt, cx, cy, dist){
   const dx = pt.x-cx, dy = pt.y-cy, d = Math.hypot(dx,dy) || 1;
   return {x: pt.x-dx/d*dist, y: pt.y-dy/d*dist};
 }
-function arrowAt(pt, cx, cy){
+function arrowAt(pt, cx, cy, size = 6.2){
   const tx = pt.x-cx, ty = pt.y-cy;
   const td = Math.hypot(tx,ty) || 1;
   ctx.fillStyle = ctx.strokeStyle;
-  drawArrow(pt.x, pt.y, tx/td, ty/td, 6.2);
+  drawArrow(pt.x, pt.y, tx/td, ty/td, size);
 }
 function drawArrow(x,y,ux,uy,size){
   const px = -uy, py = ux;
@@ -2250,12 +2259,12 @@ function drawNode(n, dim, selected, hovered, t, dimAlpha = .14){
   if(selected || hovered){
     ctx.beginPath();
     ctx.arc(p.x,p.y,r+7+pulse*2,0,Math.PI*2);
-    ctx.fillStyle = hexA(ACCENT, selected ? .16 : .09);
+    ctx.fillStyle = hexA(ACCENT, selected ? .14 : .075);
     ctx.fill();
   }
   if(n.kind === 'root'){
     const g = ctx.createRadialGradient(p.x,p.y,r*.4,p.x,p.y,r*3);
-    g.addColorStop(0,'rgba(238,241,245,.34)'); g.addColorStop(1,'rgba(238,241,245,0)');
+    g.addColorStop(0,'rgba(238,241,245,.28)'); g.addColorStop(1,'rgba(238,241,245,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x,p.y,r*3,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = '#eef1f5'; ctx.fill();
@@ -2270,35 +2279,35 @@ function drawNode(n, dim, selected, hovered, t, dimAlpha = .14){
     ctx.beginPath(); ctx.arc(p.x,p.y,r+9,0,Math.PI*2); ctx.stroke();
     ctx.setLineDash([]);
   } else if(hub){
-    ctx.beginPath(); ctx.arc(p.x,p.y,r+8+pulse*3,0,Math.PI*2);
-    ctx.fillStyle = hexA(color,.05+pulse*.05); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+7+pulse*2,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.035+pulse*.03); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = hexA(color,.18); ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = color; ctx.stroke();
     ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2.2,r*.17),0,Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
-    ctx.globalAlpha = (dim ? dimAlpha : .5) * entrance;
+    ctx.globalAlpha = (dim ? dimAlpha : .42) * entrance;
     ctx.strokeStyle = hexA(color,.85);
     ctx.lineWidth = 1;
-    ctx.setLineDash([2,6]);
+    ctx.setLineDash([2,7]);
     ctx.lineDashOffset = t*.012;
     ctx.beginPath(); ctx.arc(p.x,p.y,r+7,0,Math.PI*2); ctx.stroke();
     ctx.setLineDash([]);
   } else {
-    ctx.beginPath(); ctx.arc(p.x,p.y,r*2.35,0,Math.PI*2);
-    ctx.fillStyle = hexA(color,.07); ctx.fill();
-    ctx.beginPath(); ctx.arc(p.x,p.y,r*1.6,0,Math.PI*2);
-    ctx.fillStyle = hexA(color,.12); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r*1.95,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.045); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,r*1.35,0,Math.PI*2);
+    ctx.fillStyle = hexA(color,.075); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(8,10,13,.7)'; ctx.stroke();
     ctx.beginPath(); ctx.arc(p.x-r*.28,p.y-r*.28,Math.max(1,r*.3),0,Math.PI*2);
-    ctx.fillStyle = 'rgba(255,255,255,.32)'; ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fill();
   }
   if(selected){
     ctx.globalAlpha = entrance;
     const sg = ctx.createRadialGradient(p.x,p.y,r*.6,p.x,p.y,r*4.4);
-    sg.addColorStop(0,hexA(ACCENT,.22)); sg.addColorStop(1,hexA(ACCENT,0));
+    sg.addColorStop(0,hexA(ACCENT,.18)); sg.addColorStop(1,hexA(ACCENT,0));
     ctx.fillStyle = sg;
     ctx.beginPath(); ctx.arc(p.x,p.y,r*4.4,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(p.x,p.y,r+4,0,Math.PI*2);
@@ -2343,7 +2352,8 @@ function drawLabels(focus, t = 0){
     const font = `600 ${isFile ? (small ? 10 : 11.5) : (small ? 10.5 : 12)}px "Segoe UI",system-ui,sans-serif`;
     ctx.font = font;
     const tw = ctx.measureText(text).width;
-    const hw = tw/2 + (small ? 6 : 7), ph = small ? 18 : 20;
+    const dotPad = isFile ? 9 : 0;
+    const hw = (tw+dotPad)/2 + (small ? 6 : 7), ph = small ? 18 : 20;
     const positions = [];
     if(isFile){
       positions.push(
@@ -2392,21 +2402,22 @@ function drawLabels(focus, t = 0){
     ctx.globalAlpha = (dimmed ? .16 : 1) * entrance;
     const {box} = chosen;
     pillPath(box.x,box.y,box.w,box.h,6);
-    ctx.fillStyle = selected ? 'rgba(38,14,9,.94)' : 'rgba(9,11,15,.74)';
+    ctx.fillStyle = selected ? 'rgba(38,14,9,.94)' : 'rgba(9,11,15,.78)';
     ctx.fill();
-    ctx.strokeStyle = selected ? hexA(ACCENT,.55) : 'rgba(255,255,255,.10)';
+    ctx.strokeStyle = selected ? hexA(ACCENT,.55) : 'rgba(255,255,255,.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
     if(isFile){
+      ctx.beginPath();
+      ctx.arc(box.x+7, box.y+box.h/2, 2.2, 0, Math.PI*2);
       ctx.fillStyle = colorOf(n);
-      pillPath(box.x+1.5, box.y+4, 2, box.h-8, 1);
       ctx.fill();
     }
     ctx.font = font;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = selected ? ACCENT : INK;
-    ctx.fillText(text, chosen.pos.x, chosen.pos.y+.5);
+    ctx.fillText(text, chosen.pos.x+dotPad/2, chosen.pos.y+.5);
     ctx.restore();
   }
 }
@@ -2453,16 +2464,18 @@ function updateChrome(){
   const deps = state.mode === 'modules' ? DATA.modules.links.length : DATA.files.links.length;
   const count = state.mode === 'modules' ? DATA.modules.nodes.length : DATA.files.nodes.length;
   const noun = state.mode === 'modules' ? 'modules' : 'files';
+  const scope = state.mode === 'modules' ? `${count} modules` : `${count}/${DATA.meta.files} files`;
   const kinds = new Set(state.links.filter(l=>l.k !== 'contains').map(l=>l.k));
   const styleBits = [];
-  if(kinds.has('i')) styleBits.push('solid = import');
-  if(kinds.has('c')) styleBits.push('dashed = call');
-  styleBits.push('dotted = membership');
+  if(kinds.has('i')) styleBits.push('solid import');
+  if(kinds.has('c')) styleBits.push('dashed call');
+  styleBits.push('dotted membership');
+  const depNoun = state.w < 560 ? 'edge' : 'dependency edge';
   mapNote.replaceChildren();
-  mapNote.append(h('strong', null, `${count} ${noun}`));
-  mapNote.append(document.createTextNode(deps ? ` · ${deps} dependency edge${deps===1?'':'s'}` : ' · containment only'));
+  mapNote.append(h('strong', null, scope));
+  mapNote.append(document.createTextNode(deps ? ` · ${deps} ${depNoun}${deps===1?'':'s'}` : ' · containment only'));
   mapNote.append(h('span','foot-key',' · '+styleBits.join(' · ')));
-  canvas.setAttribute('aria-label', `Code dependency map: ${count} ${noun}, ${deps} dependency edges. Use the atlas index panel for details.`);
+  canvas.setAttribute('aria-label', `Code dependency map: ${scope}, ${deps} dependency edges. Use the atlas index panel for details.`);
 }
 function updateSearchCount(){
   const q = state.query.trim();
@@ -2550,7 +2563,7 @@ function showOverview(){
   legend.append(
     legendItem('hub','Module hub','groups files. Size follows lines of code.'),
     legendItem('file','File','colored by language; size follows LOC.'),
-    legendItem('dep','Dependency','solid import or dashed call; arrow points to the target.'),
+    legendItem('dep','Dependency','solid import or dashed call; brighter means a stronger link; arrow points to the target.'),
     legendItem('contain','Containment','dotted line shows module membership.')
   );
   panel.append(legend);
@@ -2685,9 +2698,13 @@ function openFile(id){
 function refreshTopFiles(){
   const limit = state.w < 560 ? 5 : 8;
   const files = state.nodes.filter(n=>n.kind === 'file');
-  const counts = new Map();
-  for(const f of files) counts.set(f.label || f.id, (counts.get(f.label || f.id) || 0) + 1);
+  const counts = new Map(), shown = new Map();
+  for(const f of files){
+    counts.set(f.label || f.id, (counts.get(f.label || f.id) || 0) + 1);
+    shown.set(f.module, (shown.get(f.module) || 0) + 1);
+  }
   state.dupLabels = new Set([...counts].filter(([,c])=>c > 1).map(([k])=>k));
+  state.shownByModule = shown;
   state.topFiles = new Set(
     files.sort((a,b)=>(b.rank||0)-(a.rank||0))
       .slice(0,limit).map(n=>n.id)
