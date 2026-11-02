@@ -1,7 +1,7 @@
 # CodeAtlas
 
 > `CodeAtlas` · 14 files · 6.9k LOC · 129 symbols
-> Generated 2026-11-02 09:13:30 · commit `adda58c` · CodeAtlas v1.1.1
+> Generated 2026-11-02 10:52:16 · commit `bc302eb` · CodeAtlas v1.1.2
 > Languages: markdown 5 · config 3 · javascript 2 · python 2 · shell 2
 > Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`
 
