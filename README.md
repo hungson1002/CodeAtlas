@@ -14,7 +14,7 @@ A to B?*
 It is a skill (instructions + a CLI) rather than a service. There is no graph
 database, no embeddings, no LLM call during build, and no network access.
 
-![CodeAtlas module map](assets/preview.png)
+![CodeAtlas impact map](assets/preview.png)
 
 ```text
 CODEATLAS.md            compact map, commit this (~2–4k tokens)
@@ -140,6 +140,27 @@ drift or flicker while the page is open. Open
 `.code-atlas/atlas.html` directly in a browser. Start in file view with
 `atlas.html#files` or `diagram --files`. Everything is embedded in one file;
 there is no CDN or server requirement.
+
+### Analysis on the map
+
+- **Impact** — select a node, then choose *Dependents*, *Depends on*, or
+  *Both* at 1–3 hops. The map dims everything outside the radius and colors
+  direct and transitive dependents separately. Use `i` as a shortcut.
+- **Trace path** — start from a selected node, then click a second node (or
+  `Shift`-click from anywhere) to highlight the shortest import/call path.
+  Use `p` as a shortcut; paths are capped at 8 hops and fall back to the
+  reverse direction when no forward path exists.
+- **Layers** — open the layer button in the map footer to show or hide
+  imports, calls, and containment. Analysis edges stay visible even when their
+  layer is hidden.
+- **Deep links** — selection, impact settings, paths, hidden layers, and label
+  state are encoded in the URL hash, for example
+  `#files?node=services/auth.py&impact=in-2&edges=cm&labels=0`. Browser Back
+  returns to the previous selection.
+
+Impact and path analysis use only indexed import and call edges. Containment
+shows module membership; it is never treated as a dependency. Selecting a new
+node clears the current analysis so the map always reflects the latest focus.
 
 ## Benchmarks
 

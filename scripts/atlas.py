@@ -35,7 +35,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.1.3"
+VERSION = "1.2.0"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -1645,6 +1645,19 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .zoom button{width:32px;height:30px;display:grid;place-items:center;font-size:13px;line-height:1;color:var(--on-stage-muted)}
 .zoom button+button{border-left:1px solid rgba(255,255,255,.1)}
 .zoom button:hover{background:rgba(255,255,255,.08);color:#fff}
+.zoom button.active{background:rgba(255,90,54,.16);color:#ffb6a4}
+.zoom button svg{display:block}
+#layers-pop{position:absolute;right:14px;bottom:14px;z-index:8;width:238px;padding:12px 13px;border:1px solid rgba(255,255,255,.14);border-radius:11px;background:rgba(17,20,26,.96);box-shadow:0 18px 44px rgba(0,0,0,.5);color:#dfe4ec;backdrop-filter:blur(10px)}
+#layers-pop[hidden]{display:none}
+.layers-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px;font:9px/1.2 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:#8b93a1}
+.layers-head b{font-weight:600;color:#e9ebef;letter-spacing:.04em}
+.layer-row{display:grid;grid-template-columns:16px 22px minmax(0,1fr) auto;align-items:center;gap:7px;padding:5px 0;font-size:11.5px;color:#cfd5df;cursor:pointer}
+.layer-row input{accent-color:var(--accent);width:14px;height:14px;margin:0}
+.layer-swatch{height:1.5px;border-radius:2px;background:#aeb8c8}
+.layer-swatch.call{height:0;background:none;border-top:1.5px dashed #ff7a58}
+.layer-swatch.contain{height:0;background:none;border-top:1.5px dotted #7b8494}
+.layer-key{font:9px/1 var(--mono);color:#7d8798}
+.layers-foot{margin:9px 0 0;padding-top:9px;border-top:1px solid rgba(255,255,255,.08);font:9px/1.5 var(--mono);color:#7d8798}
 #tooltip{position:absolute;z-index:6;pointer-events:none;max-width:290px;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.34);opacity:0;transform:translateY(2px);transition:opacity .12s ease,transform .12s ease}
 #tooltip.show{opacity:1;transform:none}
 .tip-name{font:600 12px/1.35 var(--sans);overflow-wrap:anywhere;color:var(--ink)}
@@ -1661,6 +1674,7 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .kicker-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(255,90,54,.10);flex:0 0 auto}
 .panel-kicker .v{font:9px/1 var(--mono);letter-spacing:.02em;text-transform:none;color:var(--accent-ui);background:rgba(255,90,54,.07);border:1px solid rgba(191,58,28,.16);padding:3px 7px;border-radius:999px}
 .panel-title{font:650 30px/1.05 var(--sans);letter-spacing:-.032em;margin:13px 0 8px;word-break:break-word}
+.panel-title.long{font-size:clamp(20px,2vw,27px);letter-spacing:-.024em}
 .panel-lede{margin:0 0 20px;color:var(--ink-soft);font-size:13px;line-height:1.65}
 .panel-path{font:11px/1.5 var(--mono);color:var(--muted);word-break:break-all;margin:-2px 0 15px}
 .rule{height:1px;background:var(--line);margin:18px 0}
@@ -1675,6 +1689,42 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .facts dt{font:9px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 3px}
 .facts dd{margin:0;font:650 18px/1.2 var(--sans);color:var(--ink);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .stats-card .facts{border:0;border-radius:0;background:transparent;box-shadow:none}
+.analysis-launch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0 4px}
+.analysis-btn{display:flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.66);font-size:11.5px;font-weight:650;color:var(--ink-soft);transition:background .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease}
+.analysis-btn svg{color:var(--accent-ui);opacity:.82;flex:0 0 auto}
+.analysis-btn:hover{background:#fff;border-color:var(--line-strong);color:var(--ink);box-shadow:0 1px 3px rgba(20,22,28,.045)}
+.analysis-card{margin:16px 0 4px;padding:12px 13px 13px;border:1px solid rgba(191,58,28,.17);border-radius:12px;background:linear-gradient(180deg,rgba(255,250,246,.94),rgba(255,255,255,.78));box-shadow:0 1px 2px rgba(20,22,28,.03)}
+.analysis-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.analysis-kicker{display:flex;align-items:center;gap:7px;font:9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent-ui)}
+.analysis-kicker::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(255,90,54,.1);flex:0 0 auto}
+.analysis-clear{font:9.5px/1 var(--mono);color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.7);border-radius:999px;padding:4px 8px;transition:background .12s ease,border-color .12s ease,color .12s ease}
+.analysis-clear:hover{color:var(--ink);border-color:var(--line-strong);background:#fff}
+.analysis-control{display:flex;align-items:center;gap:8px;margin-top:10px}
+.analysis-control > .lbl{font:9px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);width:42px;flex:0 0 auto}
+.seg{display:flex;gap:2px;background:#efebe2;border:1px solid var(--line);border-radius:7px;padding:2px;min-width:0;flex:1}
+.seg button{flex:1;min-width:0;font-size:10.5px;font-weight:600;color:var(--muted);padding:4px 5px;border-radius:5px;white-space:nowrap;transition:background .12s ease,color .12s ease,box-shadow .12s ease}
+.seg button:hover{color:var(--ink);background:rgba(255,255,255,.55)}
+.seg button[aria-pressed="true"]{background:#191b20;color:#fff;box-shadow:0 1px 3px rgba(20,22,28,.16)}
+.analysis-summary{margin:11px 0 0;font-size:11.5px;line-height:1.5;color:var(--ink-soft)}
+.analysis-summary b{color:var(--ink);font-weight:650}
+.analysis-note{margin:8px 0 0;font:9.5px/1.5 var(--mono);color:var(--muted)}
+.impact-list{list-style:none;margin:8px 0 0;padding:0;border-top:1px solid var(--line)}
+.impact-list li{border-bottom:1px solid rgba(230,225,215,.7)}
+.impact-list li:last-child{border-bottom:0}
+.impact-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:7px;align-items:baseline;width:100%;padding:6px 0;text-align:left;font-size:11.5px;color:var(--ink-soft)}
+.impact-row:hover .impact-name{color:var(--accent-ui)}
+.impact-dir{font:10px/1.4 var(--mono);color:var(--c,var(--accent-ui));text-align:center}
+.impact-name{min-width:0;overflow-wrap:anywhere;color:var(--ink-soft)}
+.impact-meta{font:9px/1.4 var(--mono);color:var(--muted);white-space:nowrap}
+.path-list{list-style:none;margin:9px 0 0;padding:0}
+.path-step{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;padding:5px 0}
+.path-step + .path-step{border-top:1px solid rgba(230,225,215,.7)}
+.path-ix{font:9px/1.4 var(--mono);color:var(--muted);text-align:center;padding-top:2px}
+.path-body{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:1px}
+.path-node{font-size:12px;color:var(--ink);text-align:left;overflow-wrap:anywhere;line-height:1.4}
+button.path-node:hover{color:var(--accent-ui)}
+.path-kind{display:block;font:9px/1.4 var(--mono);color:var(--muted);margin:1px 0 2px}
+.path-kind b{font-weight:600;color:var(--accent-ui)}
 .section-title{font:9.5px/1.2 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:24px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .section-title > span:first-child{display:flex;align-items:center;gap:7px}
 .section-title > span:first-child::before{content:"";width:10px;height:1px;background:var(--accent);opacity:.6;flex:0 0 auto}
@@ -1728,6 +1778,9 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
   .stats-head{padding:7px 12px}
   .facts div{padding:9px 12px}
   .index-meta{margin-top:16px;padding-top:10px}
+  .analysis-launch{margin-top:14px}
+  .analysis-card{margin-top:14px;padding:11px 12px 12px}
+  .analysis-control > .lbl{width:38px}
 }
 @media (max-width:860px){
   html,body{height:auto;min-height:100%}
@@ -1761,6 +1814,9 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
   .btn-label{display:none}
   .panel-title{font-size:24px}
   .facts dd{font-size:16px}
+  .analysis-btn{font-size:11px}
+  .seg button{font-size:10px;padding:4px 3px}
+  #layers-pop{right:10px;bottom:10px;width:min(238px,calc(100vw - 20px))}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}
@@ -1815,11 +1871,33 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
         <p class="fine">Try Modules, or add code files to the repository.</p>
       </div>
       <div id="tooltip" role="status"></div>
+      <div id="layers-pop" role="group" aria-label="Edge layers" hidden>
+        <div class="layers-head"><b>Layers</b><span>edges</span></div>
+        <label class="layer-row">
+          <input type="checkbox" data-edge-kind="i" checked>
+          <span class="layer-swatch" aria-hidden="true"></span>
+          <span>Imports</span><span class="layer-key">solid</span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" data-edge-kind="c" checked>
+          <span class="layer-swatch call" aria-hidden="true"></span>
+          <span>Calls</span><span class="layer-key">dashed</span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" data-edge-kind="contains" checked>
+          <span class="layer-swatch contain" aria-hidden="true"></span>
+          <span>Containment</span><span class="layer-key">dotted</span>
+        </label>
+        <p class="layers-foot">Containment is structure, not a dependency.</p>
+      </div>
     </div>
     <div class="platefoot">
       <p class="map-note" id="map-note"></p>
-      <span class="hint">drag to pan · scroll to zoom · hover to trace · click to inspect</span>
-      <div class="zoom" role="group" aria-label="Map zoom">
+      <span class="hint">drag · scroll · hover trace · click inspect · shift-click path</span>
+      <div class="zoom" role="group" aria-label="Map controls">
+        <button id="layers" type="button" aria-label="Map layers" aria-controls="layers-pop" aria-expanded="false" title="Map layers">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
+        </button>
         <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
         <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
         <button id="zoom-fit" type="button" aria-label="Fit map to view">⌂</button>
@@ -1852,8 +1930,13 @@ const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-moti
 const state = {
   mode: 'modules', nodes: [], links: [], byId: new Map(), moduleHub: new Map(),
   view: {x:0,y:0,k:1}, selected: null, hover: null, labels: true, query: '',
-  w: 0, h: 0, userMoved: false, topFiles: new Set(), dupLabels: new Set(), shownByModule: new Map(), enterAt: 0
+  w: 0, h: 0, userMoved: false, topFiles: new Set(), dupLabels: new Set(), shownByModule: new Map(), enterAt: 0,
+  filters: {i:true, c:true, contains:true}, impact: null, impactData: null,
+  path: null, syncing: false
 };
+const IMPACT_COLORS = {in:'#7fa8ff', out:'#5fd0b6', both:'#bfa6ff'};
+const PATH_COLOR = '#ffd166';
+const EDGE_CODES = {i:'i', c:'c', contains:'m'};
 const DUST = Array.from({length:30}, (_,i)=>{
   const s = seedFrom('dust:'+i);
   return {x:(s%997)/997, y:((s>>>10)%991)/991, r:.55+((s>>>20)%100)/100*1.25,
@@ -1955,6 +2038,130 @@ function finishGraph(nodes, rawLinks, mode, moduleHub = new Map()){
   const dirKeys = new Set(links.map(l=>l.k+'|'+l.s+'|'+l.t));
   for(const l of links) l.both = l.k !== 'contains' && dirKeys.has(l.k+'|'+l.t+'|'+l.s);
   return {nodes, links, byId, moduleHub, mode};
+}
+
+function linkKey(l){ return l.k+'|'+l.s+'|'+l.t; }
+function findLink(a,b){
+  let reverse = null;
+  for(const l of state.links){
+    if(l.k === 'contains') continue;
+    if(l.s === a && l.t === b) return l;
+    if(l.s === b && l.t === a) reverse = l;
+  }
+  return reverse;
+}
+function buildImpactData(){
+  const imp = state.impact;
+  if(!imp) return null;
+  const root = state.byId.get(imp.root);
+  if(!root) return null;
+  const dirs = imp.dir === 'both' ? ['in','out'] : [imp.dir];
+  const dist = new Map([[root.id,0]]);
+  const dirMap = new Map([[root.id,new Set(dirs)]]);
+  const edges = new Set();
+  let frontier = [root.id];
+  for(let depth=0; depth<imp.depth && frontier.length; depth++){
+    const next = [];
+    for(const id of frontier){
+      for(const l of state.links){
+        if(l.k === 'contains') continue;
+        let other = null, way = null;
+        if(dirs.includes('out') && l.s === id){ other = l.t; way = 'out'; }
+        if(dirs.includes('in') && l.t === id){ other = l.s; way = 'in'; }
+        if(!other) continue;
+        edges.add(linkKey(l));
+        if(!dist.has(other)){
+          dist.set(other,depth+1);
+          dirMap.set(other,new Set());
+          next.push(other);
+        }
+        if(dist.get(other) === depth+1) dirMap.get(other).add(way);
+      }
+    }
+    frontier = next;
+  }
+  const ids = new Set(dist.keys());
+  const colors = new Map();
+  for(const id of ids){
+    const ways = dirMap.get(id) || new Set();
+    colors.set(id, (ways.has('in') && ways.has('out')) ? IMPACT_COLORS.both : (ways.has('out') ? IMPACT_COLORS.out : IMPACT_COLORS.in));
+  }
+  colors.set(root.id, ACCENT);
+  const labelIds = new Set([root.id]);
+  for(const [id,d] of dist) if(d === 1) labelIds.add(id);
+  return {ids, edges, dist, colors, labelIds, rootId:root.id};
+}
+function buildPathData(startId,endId){
+  const start = state.byId.get(startId), end = state.byId.get(endId);
+  if(!start || !end) return {nodes:null, edges:[], reverse:false, hopCount:0, start:startId, end:endId};
+  const out = new Map(), inn = new Map();
+  const push = (map,a,b)=>{ if(!map.has(a)) map.set(a,[]); map.get(a).push(b); };
+  for(const l of state.links){
+    if(l.k === 'contains') continue;
+    push(out,l.s,l.t);
+    push(inn,l.t,l.s);
+  }
+  const bfs = (adj,from,to)=>{
+    if(from === to) return [from];
+    const queue = [[from,[from]]], seen = new Set([from]);
+    while(queue.length){
+      const [node,path] = queue.shift();
+      if(node === to) return path;
+      if(path.length > 9) continue;
+      for(const nxt of (adj.get(node) || [])){
+        if(seen.has(nxt)) continue;
+        seen.add(nxt);
+        queue.push([nxt,path.concat(nxt)]);
+      }
+    }
+    return null;
+  };
+  let nodes = bfs(out,startId,endId), reverse = false;
+  if(!nodes){ nodes = bfs(inn,startId,endId); reverse = true; }
+  if(!nodes) return {nodes:null, edges:[], reverse:false, hopCount:0, start:startId, end:endId};
+  const edges = [];
+  for(let i=0;i<nodes.length-1;i++){
+    const l = findLink(nodes[i],nodes[i+1]);
+    if(l) edges.push(linkKey(l));
+  }
+  return {nodes, edges, reverse, hopCount:nodes.length-1, start:startId, end:endId};
+}
+function analysisView(){
+  if(state.impact && state.impactData){
+    const d = state.impactData;
+    let labelIds = d.labelIds;
+    const labelCap = state.w < 720 ? 6 : 10;
+    if(labelIds.size > labelCap){
+      const ranked = [...labelIds]
+        .filter(id=>id !== d.rootId)
+        .map(id=>state.byId.get(id))
+        .filter(Boolean)
+        .sort((a,b)=>(b.rank||0)-(a.rank||0));
+      labelIds = new Set([d.rootId, ...ranked.slice(0,labelCap-1).map(n=>n.id)]);
+    }
+    return {kind:'impact', ids:d.ids, edges:d.edges, colors:d.colors, labelIds, rootId:d.rootId};
+  }
+  if(state.path){
+    const ids = new Set([state.path.from]);
+    const edges = new Set();
+    const colors = new Map([[state.path.from,PATH_COLOR]]);
+    const labelIds = new Set([state.path.from]);
+    const data = state.path.data;
+    if(data && data.nodes){
+      for(const id of data.nodes){
+        ids.add(id); labelIds.add(id);
+        colors.set(id, id === state.path.from ? PATH_COLOR : '#f0c15c');
+      }
+      for(const key of data.edges) edges.add(key);
+      if(state.w < 720 && data.nodes.length > 3){
+        labelIds.clear();
+        labelIds.add(data.nodes[0]);
+        labelIds.add(data.nodes[data.nodes.length-1]);
+      }
+    }
+    return {kind:'path', ids, edges, colors, labelIds, rootId:state.path.from};
+  }
+  return null;
 }
 
 function nodeWeight(n){ return (n.loc||1) + (n.files||1)*40; }
@@ -2104,8 +2311,9 @@ function circleHitsBox(p,r,box){
   const dx = p.x-nx, dy = p.y-ny;
   return dx*dx+dy*dy < r*r;
 }
-function drawClusterWashes(t = 0){
+function drawClusterWashes(t = 0, analysis = null){
   if(state.mode !== 'files') return;
+  const wash = analysis ? .32 : 1;
   for(const hub of state.moduleHub.values()){
     if(!hub.extent) continue;
     const p = screenPos(hub);
@@ -2114,7 +2322,7 @@ function drawClusterWashes(t = 0){
     if(r < 12) continue;
     const color = colorOf(hub);
     const g = ctx.createRadialGradient(p.x,p.y,ring*.25,p.x,p.y,r);
-    g.addColorStop(0,hexA(color,.10));
+    g.addColorStop(0,hexA(color,.10*wash));
     g.addColorStop(1,hexA(color,0));
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -2122,7 +2330,7 @@ function drawClusterWashes(t = 0){
     ctx.fill();
     if(ring > 24){
       ctx.save();
-      ctx.globalAlpha = .22*entrance;
+      ctx.globalAlpha = .22*entrance*wash;
       ctx.strokeStyle = hexA(color,.75);
       ctx.lineWidth = 1;
       ctx.setLineDash([2,8]);
@@ -2179,7 +2387,8 @@ function draw(t = performance.now()){
   entrance = REDUCED || !state.enterAt ? 1 : clamp((t-state.enterAt)/560,0,1);
   entrance = 1-Math.pow(1-entrance,3);
 
-  drawClusterWashes(t);
+  const analysis = analysisView();
+  drawClusterWashes(t, analysis);
   const selected = state.selected;
   const focusNode = selected || state.hover;
   const q = state.query.trim();
@@ -2191,17 +2400,22 @@ function draw(t = performance.now()){
       if(l.t === focusNode.id) focus.add(l.s);
     }
   }
-  const dimAlpha = selected ? .14 : .3;
+  const dimAlpha = analysis ? .07 : (selected ? .14 : .3);
   for(const l of state.links){
-    const dim = q ? !(matches(l.a) || matches(l.b)) : (focusNode && !(focus.has(l.s) || focus.has(l.t)));
-    drawLink(l, !!dim, focusNode, t, dimAlpha);
+    const highlighted = !!(analysis && analysis.edges.has(linkKey(l)));
+    if(!state.filters[l.k] && !highlighted) continue;
+    const dim = analysis ? !highlighted : (q ? !(matches(l.a) || matches(l.b)) : (focusNode && !(focus.has(l.s) || focus.has(l.t))));
+    drawLink(l, !!dim, focusNode, t, dimAlpha, highlighted);
   }
   const ordered = state.nodes.slice().sort((a,b)=>nodeOrder(a)-nodeOrder(b));
   for(const n of ordered){
-    const dim = (q && !matches(n)) || (focusNode && !focus.has(n.id));
-    drawNode(n, !!dim, n === selected, n === state.hover, t, dimAlpha);
+    const inAnalysis = !!(analysis && analysis.ids.has(n.id));
+    const searchHit = !!(q && matches(n));
+    const dim = analysis ? (!inAnalysis && !searchHit) : ((q && !searchHit) || (focusNode && !focus.has(n.id)));
+    const ring = inAnalysis ? analysis.colors.get(n.id) : null;
+    drawNode(n, !!dim, n === selected, n === state.hover, t, dimAlpha, ring);
   }
-  drawLabels(focus, t);
+  drawLabels(focus, t, analysis);
   ctx.globalAlpha = 1;
 }
 function nodeOrder(n){
@@ -2225,13 +2439,14 @@ function linkCurve(l){
   }
   return {a, b, cx:(a.x+b.x)/2 - dy/d*bend, cy:(a.y+b.y)/2 + dx/d*bend};
 }
-function drawLink(l, dim, focusNode, t, dimAlpha = .14){
+function drawLink(l, dim, focusNode, t, dimAlpha = .14, highlighted = false){
   const {a,b,cx,cy} = linkCurve(l);
   const contains = l.k === 'contains';
   const call = l.k === 'c';
   const both = !contains && l.both;
   if(both && l.s > l.t) return;
   const connected = focusNode && (l.s === focusNode.id || l.t === focusNode.id);
+  const active = !dim && (connected || highlighted);
   const pad = contains ? 2 : 4;
   const sa = trimToward(a, cx, cy, trimFor(l.a, pad));
   const sb = trimToward(b, cx, cy, trimFor(l.b, pad));
@@ -2239,12 +2454,12 @@ function drawLink(l, dim, focusNode, t, dimAlpha = .14){
   const strength = contains ? 1 : (state.mode === 'files' ? .42 + .58*Math.min(1, weight/4) : .72 + .28*Math.min(1, weight/4));
   const base = contains ? (state.mode === 'files' ? .24 : .64) : (call ? .50 : .36);
   ctx.save();
-  ctx.globalAlpha = (dim ? (state.selected ? .035 : .06) : (connected ? 1 : base*strength)) * entrance;
-  ctx.strokeStyle = contains ? '#606a7a' : (call ? ACCENT : '#8b95a7');
-  ctx.lineWidth = connected ? 1.55 : (contains ? 1 : (call ? 1.2 : 1.05));
+  ctx.globalAlpha = (dim ? (state.selected ? .035 : .06) : (highlighted ? .96 : (connected ? 1 : base*strength))) * entrance;
+  ctx.strokeStyle = contains ? '#606a7a' : (call ? ACCENT : (highlighted ? '#c7d8ff' : '#8b95a7'));
+  ctx.lineWidth = active ? 1.8 : (contains ? 1 : (call ? 1.2 : 1.05));
   ctx.lineCap = 'round';
   ctx.setLineDash(contains ? [1.5,4.5] : (call ? [4.5,3.5] : []));
-  ctx.lineDashOffset = call ? -t*(connected ? .02 : .0035) : 0;
+  ctx.lineDashOffset = call ? -t*(active ? .02 : .0035) : 0;
   ctx.beginPath();
   ctx.moveTo(sa.x,sa.y);
   ctx.quadraticCurveTo(cx,cy,sb.x,sb.y);
@@ -2253,11 +2468,11 @@ function drawLink(l, dim, focusNode, t, dimAlpha = .14){
   if(!contains && !dim){
     // Keep dense clusters readable when zoomed out; let arrows grow when zoomed in.
     const arrowScale = clamp(state.view.k, .6, 1.15);
-    const arrowSize = (connected ? 6.4 : 5.2) * arrowScale;
+    const arrowSize = (active ? 6.8 : 5.2) * arrowScale;
     arrowAt(sb, cx, cy, arrowSize);
     if(both) arrowAt(sa, cx, cy, arrowSize);
   }
-  if(connected && !contains){
+  if(active && !contains){
     const u = ((t*.00040 + (seedFrom(l.s+'|'+l.t)%100)/100) % 1);
     const v = 1-u;
     const px = v*v*a.x + 2*v*u*cx + u*u*b.x;
@@ -2293,7 +2508,7 @@ function drawArrow(x,y,ux,uy,size){
   ctx.closePath();
   ctx.fill();
 }
-function drawNode(n, dim, selected, hovered, t, dimAlpha = .14){
+function drawNode(n, dim, selected, hovered, t, dimAlpha = .14, ringColor = null){
   const p = screenPos(n);
   const r = Math.max(4.2, n.r*state.view.k);
   const color = colorOf(n);
@@ -2350,6 +2565,16 @@ function drawNode(n, dim, selected, hovered, t, dimAlpha = .14){
     ctx.beginPath(); ctx.arc(p.x-r*.28,p.y-r*.28,Math.max(1,r*.3),0,Math.PI*2);
     ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fill();
   }
+  if(ringColor && !selected){
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+4.2,0,Math.PI*2);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = ringColor; ctx.stroke();
+    ctx.globalAlpha = .32*entrance;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+7.4+pulse*1.7,0,Math.PI*2);
+    ctx.lineWidth = 1; ctx.strokeStyle = ringColor;
+    ctx.setLineDash([2,4]); ctx.lineDashOffset = -t*.018;
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = (dim ? dimAlpha : 1) * entrance;
+  }
   if(selected){
     ctx.globalAlpha = entrance;
     const sg = ctx.createRadialGradient(p.x,p.y,r*.6,p.x,p.y,r*4.4);
@@ -2380,7 +2605,7 @@ function pillPath(x,y,w,h,r){
   ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
 }
-function drawLabels(focus, t = 0){
+function drawLabels(focus, t = 0, analysis = null){
   const q = state.query.trim();
   const boxes = [];
   const order = state.nodes.slice().sort((a,b)=>labelPriority(b)-labelPriority(a));
@@ -2389,7 +2614,9 @@ function drawLabels(focus, t = 0){
     const hovered = n === state.hover;
     const isFile = n.kind === 'file';
     const top = isFile && state.topFiles.has(n.id);
-    const show = selected || hovered || (state.labels && (!isFile || top || state.view.k > .9 || state.nodes.length <= 20 || (q && matches(n))));
+    const inAnalysis = !!(analysis && analysis.labelIds.has(n.id));
+    const searchHit = !!(q && matches(n));
+    const show = selected || hovered || inAnalysis || (searchHit && state.labels) || (!analysis && state.labels && (!isFile || top || state.view.k > .9 || state.nodes.length <= 20 || searchHit));
     if(!show) continue;
     const p = screenPos(n);
     const r = Math.max(4.2, n.r*state.view.k);
@@ -2436,14 +2663,14 @@ function drawLabels(focus, t = 0){
       const box = {x:pos.x-hw, y:pos.y-ph/2, w:hw*2, h:ph};
       if(box.x < 5 || box.y < 5 || box.x+box.w > state.w-5 || box.y+box.h > state.h-5) continue;
       if(boxes.some(b=>rectsOverlap(b,box))) continue;
-      const force = selected || hovered || (state.w < 560 && !isFile);
+      const force = selected || hovered || inAnalysis || (state.w < 560 && !isFile);
       if(!force && state.nodes.some(m=>circleHitsBox(screenPos(m), Math.max(4.2,m.r*state.view.k)+2, box))) continue;
       chosen = {pos, box};
       break;
     }
     if(!chosen) continue;
     boxes.push(chosen.box);
-    const dimmed = (q && !matches(n)) || (state.selected && !focus.has(n.id)) || (state.hover && n !== state.hover && !focus.has(n.id));
+    const dimmed = (analysis && !analysis.ids.has(n.id) && !(q && matches(n))) || (q && !matches(n)) || (state.selected && !focus.has(n.id)) || (state.hover && n !== state.hover && !focus.has(n.id));
     ctx.save();
     ctx.globalAlpha = (dimmed ? .16 : 1) * entrance;
     const {box} = chosen;
@@ -2462,7 +2689,7 @@ function drawLabels(focus, t = 0){
     ctx.font = font;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = selected ? ACCENT : INK;
+    ctx.fillStyle = selected ? ACCENT : ((analysis && analysis.colors.get(n.id)) || INK);
     ctx.fillText(text, chosen.pos.x+dotPad/2, chosen.pos.y+.5);
     ctx.restore();
   }
@@ -2515,27 +2742,137 @@ function updateChrome(){
   document.getElementById('n-files').textContent = DATA.files.nodes.length;
   document.getElementById('mode-modules').setAttribute('aria-pressed', state.mode === 'modules');
   document.getElementById('mode-files').setAttribute('aria-pressed', state.mode === 'files');
-  const deps = state.mode === 'modules' ? DATA.modules.links.length : DATA.files.links.length;
+  const visible = state.links.filter(l=>l.k !== 'contains' && state.filters[l.k]);
+  const deps = visible.length;
   const count = state.mode === 'modules' ? DATA.modules.nodes.length : DATA.files.nodes.length;
   const noun = state.mode === 'modules' ? 'modules' : 'files';
   const scope = state.mode === 'modules' ? `${count} modules` : `${count}/${DATA.meta.files} files`;
-  const kinds = new Set(state.links.filter(l=>l.k !== 'contains').map(l=>l.k));
+  const kinds = new Set(visible.map(l=>l.k));
   const styleBits = [];
   if(kinds.has('i')) styleBits.push('solid import');
   if(kinds.has('c')) styleBits.push('dashed call');
-  styleBits.push('dotted membership');
+  if(state.filters.contains) styleBits.push('dotted membership');
+  const filtered = !state.filters.i || !state.filters.c || !state.filters.contains;
   const depNoun = state.w < 560 ? 'edge' : 'dependency edge';
   mapNote.replaceChildren();
   mapNote.append(h('strong', null, scope));
-  mapNote.append(document.createTextNode(deps ? ` · ${deps} ${depNoun}${deps===1?'':'s'}` : ' · containment only'));
-  mapNote.append(h('span','foot-key',' · '+styleBits.join(' · ')));
-  canvas.setAttribute('aria-label', `Code dependency map: ${scope}, ${deps} dependency edges. Use the atlas index panel for details.`);
+  mapNote.append(document.createTextNode(deps ? ` · ${deps} ${depNoun}${deps===1?'':'s'}` : (state.filters.contains ? ' · containment only' : ' · all edges hidden')));
+  if(filtered) mapNote.append(h('span','foot-key',' · filtered'));
+  if(styleBits.length) mapNote.append(h('span','foot-key',' · '+styleBits.join(' · ')));
+  canvas.setAttribute('aria-label', `Code dependency map: ${scope}, ${deps} visible dependency edges${filtered?', filtered':''}. Use the atlas index panel for details.`);
 }
 function updateSearchCount(){
   const q = state.query.trim();
   if(!q){ document.getElementById('search-count').textContent = ''; return; }
   const n = state.nodes.filter(m=>m.kind !== 'root' && matches(m)).length;
   document.getElementById('search-count').textContent = n ? `${n} match${n===1?'':'es'}` : 'No matches';
+}
+function filtersActive(){
+  return !state.filters.i || !state.filters.c || !state.filters.contains;
+}
+function syncFilterInputs(){
+  document.querySelectorAll('input[data-edge-kind]').forEach(input=>{
+    input.checked = !!state.filters[input.dataset.edgeKind];
+  });
+  const btn = document.getElementById('layers');
+  if(!btn) return;
+  const filtered = filtersActive();
+  btn.classList.toggle('active', filtered);
+  btn.setAttribute('aria-pressed', String(filtered));
+}
+function toggleLayers(open){
+  const pop = document.getElementById('layers-pop');
+  const btn = document.getElementById('layers');
+  if(!pop || !btn) return;
+  const next = open === undefined ? pop.hidden : !!open;
+  pop.hidden = !next;
+  btn.setAttribute('aria-expanded', String(next));
+}
+function hashForState(){
+  const params = new URLSearchParams();
+  if(state.selected) params.set('node',state.selected.id);
+  if(state.impact) params.set('impact',`${state.impact.dir}-${state.impact.depth}`);
+  if(state.path){
+    params.set('from',state.path.from);
+    if(state.path.to) params.set('to',state.path.to);
+  }
+  const visible = ['i','c','contains'].filter(k=>state.filters[k]);
+  if(visible.length < 3) params.set('edges', visible.length ? visible.map(k=>EDGE_CODES[k]).join('') : 'none');
+  if(!state.labels) params.set('labels','0');
+  const qs = params.toString();
+  return '#'+state.mode+(qs?'?'+qs:'');
+}
+function syncHash(how = 'replace'){
+  if(state.syncing) return;
+  const next = hashForState();
+  if(location.hash === next) return;
+  try {
+    if(how === 'push') history.pushState(null,'',next);
+    else history.replaceState(null,'',next);
+  } catch {
+    state.syncing = true;
+    location.hash = next;
+    state.syncing = false;
+  }
+}
+function applyHash(){
+  if(state.syncing) return;
+  state.syncing = true;
+  const raw = location.hash.replace(/^#\/?/,'');
+  const split = raw.indexOf('?');
+  const modePart = split >= 0 ? raw.slice(0,split) : raw;
+  const params = new URLSearchParams(split >= 0 ? raw.slice(split+1) : '');
+  const mode = (modePart === 'files' || modePart === 'modules') ? modePart : (START_MODE === 'files' ? 'files' : 'modules');
+  if(mode !== state.mode) load(mode);
+
+  const edges = params.get('edges');
+  if(edges === null){
+    state.filters = {i:true, c:true, contains:true};
+  } else {
+    const raw = edges === 'none' ? '' : edges;
+    const legacyContains = raw.includes('contains');
+    const codes = raw.replace(/contains/g,'');
+    state.filters = {i:codes.includes('i'), c:codes.includes('c'), contains:legacyContains || codes.includes('m')};
+  }
+  state.labels = params.get('labels') !== '0';
+  document.getElementById('labels').setAttribute('aria-pressed', String(state.labels));
+  syncFilterInputs();
+
+  state.impact = null;
+  state.impactData = null;
+  state.path = null;
+  const nodeParam = params.get('node');
+  const node = nodeParam ? resolveNode(nodeParam) : null;
+  const fromParam = params.get('from');
+  const fromNode = fromParam ? resolveNode(fromParam) : null;
+  if(fromNode){
+    state.selected = fromNode;
+    state.path = {from:fromNode.id, to:null, data:null};
+    const toParam = params.get('to');
+    const toNode = toParam ? resolveNode(toParam) : null;
+    if(toNode){
+      state.path.to = toNode.id;
+      state.path.data = buildPathData(fromNode.id,toNode.id);
+    }
+  } else {
+    state.selected = node;
+    const impactParam = params.get('impact');
+    const match = impactParam && impactParam.match(/^(in|out|both)-([1-3])$/);
+    if(node && match){
+      state.impact = {root:node.id, dir:match[1], depth:Number(match[2])};
+      state.impactData = buildImpactData();
+    }
+  }
+  refreshPanel();
+  updateChrome();
+  requestDraw();
+  state.syncing = false;
+}
+let hashApplyTimer = null;
+function scheduleApplyHash(){
+  if(state.syncing) return;
+  clearTimeout(hashApplyTimer);
+  hashApplyTimer = setTimeout(applyHash,0);
 }
 
 function factList(items){
@@ -2592,7 +2929,7 @@ function relationRow(target, kind, direction){
   const name = h('span','row-name');
   name.append(h('span','row-kind', relKindLabel(kind)), document.createTextNode((direction ? direction+' ' : '')+displayLabel(node)));
   btn.append(name, h('span','row-meta', node.kind === 'file' ? fmt(node.loc||0)+' LOC' : `${node.files||1} files`));
-  btn.onclick = ()=>select(node);
+  btn.onclick = ()=>activateNode(node);
   li.append(btn);
   return li;
 }
@@ -2611,6 +2948,198 @@ function relationGroups(n){
 }
 function directionMark(group){
   return group.out && group.inc ? '↔' : (group.out ? '→' : '←');
+}
+
+function segButton(label, active, title, pick){
+  const b = h('button',null,label);
+  b.type = 'button';
+  b.setAttribute('aria-pressed', active ? 'true' : 'false');
+  if(title) b.title = title;
+  b.onclick = pick;
+  return b;
+}
+function analysisClear(label = 'Clear'){
+  const b = h('button','analysis-clear',label);
+  b.type = 'button';
+  b.onclick = ()=>clearAnalysis();
+  return b;
+}
+function analysisLaunch(){
+  const box = h('div','analysis-launch');
+  const impact = h('button','analysis-btn');
+  impact.type = 'button';
+  impact.title = 'Highlight what depends on this and what it depends on';
+  impact.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8" stroke-dasharray="2 3"></circle><path d="M12 4v2M20 12h-2M12 20v-2M4 12h2"></path></svg>';
+  impact.append(document.createTextNode('Impact'));
+  impact.onclick = startImpact;
+  const path = h('button','analysis-btn');
+  path.type = 'button';
+  path.title = 'Trace the shortest dependency path to another node';
+  path.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="17" r="2"></circle><circle cx="19" cy="7" r="2"></circle><path d="M7 16.2 17 7.8"></path></svg>';
+  path.append(document.createTextNode('Trace path'));
+  path.onclick = startPath;
+  box.append(impact,path);
+  return box;
+}
+function impactCard(n){
+  const imp = state.impact;
+  const data = state.impactData;
+  const card = h('div','analysis-card');
+  const head = h('div','analysis-head');
+  head.append(h('span','analysis-kicker','Impact radius'), analysisClear());
+  card.append(head);
+
+  const dirRow = h('div','analysis-control');
+  dirRow.append(h('span','lbl','Show'));
+  const dseg = h('div','seg');
+  dseg.setAttribute('role','group'); dseg.setAttribute('aria-label','Impact direction');
+  dseg.append(
+    segButton('Dependents', imp.dir === 'in', 'Nodes that depend on this one', ()=>setImpactOption('dir','in')),
+    segButton('Depends on', imp.dir === 'out', 'Nodes this one depends on', ()=>setImpactOption('dir','out')),
+    segButton('Both', imp.dir === 'both', 'Both directions', ()=>setImpactOption('dir','both'))
+  );
+  dirRow.append(dseg);
+  card.append(dirRow);
+
+  const depthRow = h('div','analysis-control');
+  depthRow.append(h('span','lbl','Depth'));
+  const zseg = h('div','seg');
+  zseg.setAttribute('role','group'); zseg.setAttribute('aria-label','Impact depth');
+  for(const depth of [1,2,3]){
+    zseg.append(segButton(depth === 1 ? '1 hop' : depth+' hops', imp.depth === depth, `${depth} dependency hop${depth===1?'':'s'}`, ()=>setImpactOption('depth',depth)));
+  }
+  depthRow.append(zseg);
+  card.append(depthRow);
+
+  const total = data ? Math.max(0,data.ids.size-1) : 0;
+  const direct = data ? [...data.dist].filter(([id,d])=>id !== imp.root && d === 1).length : 0;
+  const noun = state.mode === 'files' ? 'files' : 'modules';
+  const role = imp.dir === 'in' ? 'dependents' : (imp.dir === 'out' ? 'dependencies' : 'connected nodes');
+  const summary = h('p','analysis-summary');
+  if(total) summary.append(h('b',null,String(total)), document.createTextNode(` ${role} within ${imp.depth} hop${imp.depth===1?'':'s'} · ${direct} direct`));
+  else summary.append(document.createTextNode(`No ${role} within ${imp.depth} hop${imp.depth===1?'':'s'}.`));
+  card.append(summary);
+
+  if(data && direct){
+    const entries = [...data.dist]
+      .filter(([id,d])=>id !== imp.root && d === 1)
+      .map(([id])=>state.byId.get(id))
+      .filter(Boolean)
+      .sort((a,b)=>displayLabel(a).localeCompare(displayLabel(b)));
+    const list = h('ul','impact-list');
+    for(const node of entries.slice(0,8)){
+      const color = data.colors.get(node.id) || IMPACT_COLORS.in;
+      const mark = color === IMPACT_COLORS.out ? '→' : (color === IMPACT_COLORS.both ? '↔' : '←');
+      const li = h('li');
+      const row = h('button','impact-row');
+      row.type = 'button';
+      row.style.setProperty('--c',color);
+      row.append(h('span','impact-dir',mark), h('span','impact-name',displayLabel(node)), h('span','impact-meta',node.kind === 'file' ? fmt(node.loc||0)+' LOC' : `${node.files||1} files`));
+      row.onclick = ()=>activateNode(node);
+      li.append(row);
+      list.append(li);
+    }
+    card.append(list);
+    if(entries.length > 8) card.append(h('p','analysis-note',`+${entries.length-8} more direct ${noun} highlighted on the map.`));
+  }
+  card.append(h('p','analysis-note','Dependents point to what breaks; dependencies point to what this node relies on.'));
+  return card;
+}
+function pathCard(n){
+  const data = state.path.data;
+  const card = h('div','analysis-card');
+  const head = h('div','analysis-head');
+  head.append(h('span','analysis-kicker','Path'), analysisClear());
+  card.append(head);
+
+  if(!state.path.to){
+    card.append(h('p','analysis-summary','Click another node to trace the shortest dependency path. Shift-click works from any selected node.'));
+    card.append(h('p','analysis-note','Only indexed import and call edges are used.'));
+    return card;
+  }
+  if(!data || !data.nodes){
+    card.append(h('p','analysis-summary','No dependency path within 8 hops in either direction.'));
+    card.append(h('p','analysis-note','Try a different target or switch between Modules and Files.'));
+    return card;
+  }
+  const summary = h('p','analysis-summary');
+  summary.append(h('b',null,`${data.hopCount} hop${data.hopCount===1?'':'s'}`), document.createTextNode(data.reverse ? ' · reverse dependency path' : ' · dependency path'));
+  card.append(summary);
+  if(data.reverse) card.append(h('p','analysis-note','This path follows importers backwards.'));
+  const list = h('ol','path-list');
+  for(let i=0;i<data.nodes.length;i++){
+    const node = state.byId.get(data.nodes[i]);
+    if(!node) continue;
+    const step = h('li','path-step');
+    const body = h('div','path-body');
+    if(i === 0) body.append(h('span','path-node',displayLabel(node)));
+    else {
+      const prev = state.byId.get(data.nodes[i-1]);
+      const link = prev ? findLink(prev.id,node.id) : null;
+      const kind = link ? relKindLabel(link.k) : 'link';
+      const btn = h('button','path-node',displayLabel(node));
+      btn.type = 'button';
+      btn.onclick = ()=>activateNode(node);
+      body.append(h('span','path-kind',`↓ ${kind}`), btn);
+    }
+    step.append(h('span','path-ix',String(i+1)), body);
+    list.append(step);
+  }
+  card.append(list);
+  return card;
+}
+function analysisBlock(n){
+  if(state.impact && state.impact.root === n.id) return impactCard(n);
+  if(state.path && state.path.from === n.id) return pathCard(n);
+  return analysisLaunch();
+}
+function startImpact(){
+  if(!state.selected) return;
+  state.path = null;
+  state.impact = {root:state.selected.id, dir:'in', depth:2};
+  state.impactData = buildImpactData();
+  refreshPanel();
+  syncHash('replace');
+  requestDraw();
+  live.textContent = `Impact radius for ${displayLabel(state.selected)}`;
+}
+function setImpactOption(key,value){
+  if(!state.impact) return;
+  state.impact[key] = value;
+  state.impactData = buildImpactData();
+  refreshPanel();
+  syncHash('replace');
+  requestDraw();
+}
+function startPath(){
+  if(!state.selected) return;
+  state.impact = null;
+  state.impactData = null;
+  state.path = {from:state.selected.id,to:null,data:null};
+  refreshPanel();
+  syncHash('replace');
+  requestDraw();
+  live.textContent = `Path start: ${displayLabel(state.selected)}. Select another node.`;
+}
+function completePath(target){
+  if(!state.path || !target) return;
+  state.path.to = target.id;
+  state.path.data = buildPathData(state.path.from,target.id);
+  refreshPanel();
+  syncHash('replace');
+  requestDraw();
+  const data = state.path.data;
+  live.textContent = data && data.nodes ? `Path: ${data.hopCount} hop${data.hopCount===1?'':'s'} from ${displayLabel(state.byId.get(state.path.from))} to ${displayLabel(target)}` : 'No dependency path found.';
+}
+function clearAnalysis(opts = {}){
+  const had = !!(state.impact || state.path);
+  state.impact = null;
+  state.impactData = null;
+  state.path = null;
+  if(opts.render !== false && state.selected) refreshPanel();
+  requestDraw();
+  if(!opts.silent) syncHash('replace');
+  if(had) live.textContent = 'Analysis cleared';
 }
 
 function showOverview(){
@@ -2684,7 +3213,8 @@ function showModule(n){
   panel.replaceChildren();
   panel.append(panelBack('Atlas index', null));
   panel.append(h('p','crumb','Module'));
-  panel.append(h('h1','panel-title',displayLabel(n)));
+  const moduleTitle = displayLabel(n);
+  panel.append(h('h1','panel-title'+(moduleTitle.length > 18 ? ' long' : ''),moduleTitle));
   panel.append(h('p','panel-path',`${m.files} files · ${fmt(m.loc)} lines`));
   panel.append(factList([
     ['Files in module', m.files],
@@ -2692,6 +3222,7 @@ function showModule(n){
     ['Influence', (m.rank||0).toFixed(4)],
     ['Language', topLang(m)]
   ]));
+  panel.append(analysisBlock(n));
   if(files.length){
     panel.append(sectionTitle('Files in this view', files.length));
     const list = h('ul','rows');
@@ -2736,7 +3267,8 @@ function showFile(n){
   panel.replaceChildren();
   panel.append(panelBack(hub ? displayLabel(hub) : 'Atlas index', hub || null));
   panel.append(h('p','crumb','File'));
-  panel.append(h('h1','panel-title',n.label||n.id));
+  const fileTitle = n.label||n.id;
+  panel.append(h('h1','panel-title'+(fileTitle.length > 18 ? ' long' : ''),fileTitle));
   panel.append(h('p','panel-path',n.path||n.id));
   panel.append(factList([
     ['Lines', fmt(n.loc||0)],
@@ -2744,6 +3276,7 @@ function showFile(n){
     ['Module', n.module],
     ['Internal calls', fmt(n.calls||0)]
   ]));
+  panel.append(analysisBlock(n));
   const rels = relationGroups(n);
   panel.append(sectionTitle('Relations', rels.length));
   if(rels.length){
@@ -2770,13 +3303,39 @@ function showFile(n){
   }
   if(n.tests) panel.append(h('p','fine','Indexed as a test file.'));
 }
-function select(n){
-  state.selected = n || null;
-  requestDraw();
+function refreshPanel(){
+  const top = panel.scrollTop;
+  const n = state.selected;
   if(!n || n.kind === 'root') showOverview();
   else if(n.kind === 'hub' || n.kind === 'module') showModule(n);
   else showFile(n);
+  panel.scrollTop = Math.min(top, panel.scrollHeight);
+}
+function select(n, opts = {}){
+  const same = !!(state.selected && n && state.selected.id === n.id);
+  state.selected = n || null;
+  if(!opts.keepAnalysis){
+    state.impact = null;
+    state.impactData = null;
+    state.path = null;
+  }
+  refreshPanel();
   live.textContent = n ? `${displayLabel(n)} selected` : 'Atlas overview';
+  requestDraw();
+  if(!opts.silent) syncHash(n && !same ? 'push' : 'replace');
+}
+function activateNode(n, e){
+  if(!n){ select(null); return; }
+  if(e && e.shiftKey && state.selected && n.id !== state.selected.id){
+    if(!state.path || state.path.from !== state.selected.id) startPath();
+    completePath(n);
+    return;
+  }
+  if(state.path && !state.path.to && n.id !== state.path.from){
+    completePath(n);
+    return;
+  }
+  select(n);
 }
 function focusSymbol(sym){
   search.value = sym;
@@ -2811,6 +3370,9 @@ function load(mode){
   state.mode = mode;
   state.selected = null;
   state.hover = null;
+  state.impact = null;
+  state.impactData = null;
+  state.path = null;
   const graph = buildGraph(mode);
   state.nodes = graph.nodes;
   state.links = graph.links;
@@ -2859,7 +3421,7 @@ function setTooltip(n, e){
 let drag = null;
 canvas.addEventListener('pointerdown', e=>{
   const n = hit(e);
-  if(n){ select(n); return; }
+  if(n){ activateNode(n,e); return; }
   drag = {x:e.clientX, y:e.clientY, vx:state.view.x, vy:state.view.y, moved:false};
   canvas.classList.add('dragging');
   canvas.setPointerCapture(e.pointerId);
@@ -2911,23 +3473,43 @@ document.getElementById('mode-files').onclick = ()=>setMode('files');
 function setMode(mode){
   if(mode === state.mode) return;
   load(mode);
+  syncHash('push');
 }
 document.getElementById('labels').onclick = e=>{
   state.labels = !state.labels;
   e.currentTarget.setAttribute('aria-pressed', state.labels);
   requestDraw();
+  syncHash('replace');
 };
 document.getElementById('reset').onclick = ()=>{ fitView(); };
 document.getElementById('brand').onclick = ()=>{ select(null); fitView(); };
 document.getElementById('zoom-in').onclick = ()=>zoomBy(1.2);
 document.getElementById('zoom-out').onclick = ()=>zoomBy(1/1.2);
 document.getElementById('zoom-fit').onclick = ()=>fitView();
+document.getElementById('layers').onclick = ()=>toggleLayers();
+document.querySelectorAll('input[data-edge-kind]').forEach(input=>{
+  input.onchange = ()=>{
+    state.filters[input.dataset.edgeKind] = input.checked;
+    syncFilterInputs();
+    updateChrome();
+    requestDraw();
+    syncHash('replace');
+  };
+});
+document.addEventListener('pointerdown', e=>{
+  const pop = document.getElementById('layers-pop');
+  const btn = document.getElementById('layers');
+  if(pop && !pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) toggleLayers(false);
+});
 window.addEventListener('keydown', e=>{
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   const typing = e.target && e.target.matches && e.target.matches('input,textarea');
   if(e.key === 'Escape'){
-    if(state.query){ search.value=''; state.query=''; updateSearchCount(); requestDraw(); }
-    else select(null);
+    const pop = document.getElementById('layers-pop');
+    if(pop && !pop.hidden){ toggleLayers(false); return; }
+    if(state.query){ search.value=''; state.query=''; updateSearchCount(); requestDraw(); return; }
+    if(state.impact || state.path){ clearAnalysis(); return; }
+    select(null);
     return;
   }
   if(typing) return;
@@ -2937,12 +3519,18 @@ window.addEventListener('keydown', e=>{
   else if(e.key === '-'){ e.preventDefault(); zoomBy(1/1.2); }
   else if(e.key.toLowerCase() === 'm'){ setMode('modules'); }
   else if(e.key.toLowerCase() === 'f'){ setMode('files'); }
+  else if(e.key.toLowerCase() === 'i'){ if(state.impact) clearAnalysis(); else startImpact(); }
+  else if(e.key.toLowerCase() === 'p'){ if(state.path) clearAnalysis(); else startPath(); }
 });
 
-const hashMode = location.hash.replace(/^#\/?/,'');
+const hashMode = location.hash.replace(/^#\/?/,'').split('?')[0];
 const initialMode = (hashMode === 'files' || hashMode === 'modules') ? hashMode : (START_MODE === 'files' ? 'files' : 'modules');
 resize();
 load(initialMode);
+applyHash();
+syncHash('replace');
+window.addEventListener('popstate', scheduleApplyHash);
+window.addEventListener('hashchange', scheduleApplyHash);
 </script>
 </body>
 </html>

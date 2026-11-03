@@ -356,6 +356,13 @@ class AtlasCLITest(unittest.TestCase):
         self.assertEqual(data["path"][-1], "utils/security.py")
         self.assertIn("services/auth.py", data["path"])
 
+    def test_path_reverse_direction(self) -> None:
+        proc = self.atlas("path", "utils/security.py", "services/auth.py", "--json")
+        data = json.loads(proc.stdout)
+        self.assertEqual(data["direction"], "is imported by")
+        self.assertEqual(data["path"][0], "utils/security.py")
+        self.assertEqual(data["path"][-1], "services/auth.py")
+
     def test_pack_respects_focus_and_budget(self) -> None:
         proc = self.atlas("pack", "AuthService", "--budget", "700")
         self.assertIn("# Pack: AuthService", proc.stdout)
@@ -376,6 +383,14 @@ class AtlasCLITest(unittest.TestCase):
         self.assertIn("const DATA =", html)
         self.assertIn('const START_MODE = "files";', html)
         self.assertIn('"k":"i"', html)
+        self.assertIn("function buildImpactData", html)
+        self.assertIn("function buildPathData", html)
+        self.assertIn("function analysisView", html)
+        self.assertIn("function syncHash", html)
+        self.assertIn("const EDGE_CODES = {i:'i', c:'c', contains:'m'}", html)
+        self.assertIn('id="layers-pop"', html)
+        self.assertIn('data-edge-kind="contains"', html)
+        self.assertIn("shift-click path", html)
         self.assertNotIn("<script src=", html)
         self.assertNotIn("requestAnimationFrame(step)", html)
         mmd = Path(data["mermaid"]).read_text(encoding="utf-8")
