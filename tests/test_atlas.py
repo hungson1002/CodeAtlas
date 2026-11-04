@@ -141,6 +141,32 @@ class AtlasCLITest(unittest.TestCase):
             "  }\n"
             "}\n",
         )
+        # Relative imports from nested directories, with a duplicate basename in
+        # another folder. The resolver must not fall back to the wrong file or
+        # drop the edge when the basename is ambiguous.
+        write(cls.root, "shared/canvas.ts", "export const canvas = 1;\n")
+        write(cls.root, "src/routes/canvas.ts", "export const route = 1;\n")
+        write(
+            cls.root,
+            "src/routes/scene.ts",
+            "import { canvas } from '../../shared/canvas';\n"
+            "\n"
+            "export const scene = canvas;\n",
+        )
+        write(
+            cls.root,
+            "src/deep/nested/panel.ts",
+            "import { canvas } from '../../../shared/canvas';\n"
+            "\n"
+            "export const panel = canvas;\n",
+        )
+        write(
+            cls.root,
+            "web/legacy.ts",
+            "import { gone } from '../missing/gone';\n"
+            "\n"
+            "export const legacy = gone;\n",
+        )
         write(
             cls.root,
             "tests/test_auth.py",
@@ -281,6 +307,26 @@ class AtlasCLITest(unittest.TestCase):
             {s["id"] for s in self.index["files"]["web/store.ts"]["symbols"]},
         )
 
+    def test_typescript_relative_import_depth(self) -> None:
+        scene = self.index["files"]["src/routes/scene.ts"]
+        self.assertEqual(scene["unresolved"], [])
+        self.assertIn("shared/canvas.ts", scene["imports"])
+        panel = self.index["files"]["src/deep/nested/panel.ts"]
+        self.assertEqual(panel["unresolved"], [])
+        self.assertIn("shared/canvas.ts", panel["imports"])
+        # The duplicate basename must not be picked instead of the real target.
+        self.assertNotIn("src/routes/canvas.ts", scene["imports"])
+
+    def test_broken_relative_import_is_not_external(self) -> None:
+        legacy = self.index["files"]["web/legacy.ts"]
+        self.assertEqual(legacy["external"], [])
+        self.assertIn("../missing/gone", legacy["unresolved"])
+
+    def test_impact_cross_directory_relative_import(self) -> None:
+        data = json.loads(self.atlas("impact", "shared/canvas.ts", "--json").stdout)
+        self.assertIn("src/routes/scene.ts", data["direct_importers"])
+        self.assertIn("src/deep/nested/panel.ts", data["direct_importers"])
+
     def test_python_utf8_bom(self) -> None:
         bom = self.index["files"]["utils/bom.py"]
         self.assertEqual(bom["errors"], [])
@@ -410,6 +456,8 @@ class AtlasCLITest(unittest.TestCase):
         fresh = self.atlas("doctor", check=False)
         self.assertEqual(fresh.returncode, 0, fresh.stdout)
         self.assertIn("FRESH", fresh.stdout)
+        self.assertIn("unresolved relative import", fresh.stdout)
+        self.assertIn("../missing/gone", fresh.stdout)
 
         user = self.root / "services/user.py"
         user.write_text(

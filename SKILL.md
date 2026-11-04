@@ -124,7 +124,7 @@ atlas impact <target>      reverse deps, risk score, incoming calls, tests
 atlas path <a> <b>         shortest dependency path
 atlas pack <focus>         related files under a token budget
 atlas diagram [--files]    write Mermaid + interactive HTML
-atlas doctor [--fix]       freshness, coverage, parse errors
+atlas doctor [--fix]       freshness, coverage, unresolved imports, parse errors
 atlas stats                index statistics
 ```
 
@@ -253,6 +253,7 @@ when a default exclude or `.gitignore` rule hides them, such as `bin/` or
 | `STALE` after checkout | `update`; if parse errors appear, `build --full` |
 | symbol not found | try `where` with a shorter name; then `rg -n` |
 | wrong/ambiguous edges | inspect `impact`; rely on direct importers, not just risk |
+| unresolved imports | `doctor` lists relative imports that resolve to no indexed file |
 | parse errors | fix syntax or exclude generated files; `stats` shows samples |
 | HTML blank | open via a local server or `file://` with `#files`; check browser console |
 | huge repo / slow scan | add excludes, lower `max_file_kb`, scope with `-C` |

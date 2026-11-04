@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -35,7 +36,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -838,13 +839,23 @@ def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_f
     if not spec or spec.startswith("node:"):
         return None
     if spec.startswith("."):
-        # Python-style relative import: ".utils", "..models", ".".
-        dots = len(spec) - len(spec.lstrip("."))
-        rest = spec[dots:].lstrip("/")
-        base = Path(from_rel).parent
-        for _ in range(max(0, dots - 1)):
-            base = base.parent
-        p = base / rest if rest else base
+        if lang == "python":
+            # Python relative import: ".utils", "..models", ".".
+            dots = len(spec) - len(spec.lstrip("."))
+            rest = spec[dots:].lstrip("/")
+            base = Path(from_rel).parent
+            for _ in range(max(0, dots - 1)):
+                base = base.parent
+            p = base / rest if rest else base
+        else:
+            # Slash-separated languages treat each "../" as one directory.
+            # Counting leading dots instead resolved "../../shared/x" from
+            # "server/services/y.ts" one level too shallow and dropped the edge.
+            base = posixpath.dirname(from_rel.replace("\\", "/"))
+            joined = posixpath.normpath(
+                posixpath.join(base, spec.replace("\\", "/"))
+            )
+            p = Path(joined)
         cands = expand_candidates(p, lang)
     else:
         raw = spec.replace("\\", "/")
@@ -889,7 +900,7 @@ def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_f
             matches.append(rel)
             continue
         for e in LANG_EXTS.get(lang, []):
-            if rel.endswith("/" + stem + e):
+            if rel == stem + e or rel.endswith("/" + stem + e):
                 matches.append(rel)
                 break
     matches = list(dict.fromkeys(matches))
@@ -1057,14 +1068,23 @@ def build_index(root, cfg, full=False, use_git=True, quiet=False):
     for rel, f in files.items():
         resolved = []
         external = []
+        unresolved = []
         for imp in f.get("imports_raw", []):
-            target = resolve_spec(root, rel, imp.get("spec", ""), files_set, basename_index, f["lang"], symbol_files)
+            spec = imp.get("spec", "")
+            target = resolve_spec(root, rel, spec, files_set, basename_index, f["lang"], symbol_files)
             if target and target != rel:
                 resolved.append(target)
             elif not target:
-                external.append(imp.get("spec", ""))
+                # A relative specifier that resolves to nothing is a broken
+                # local import, not an external package. Keep it visible so
+                # doctor can report graph blind spots.
+                if spec.startswith("."):
+                    unresolved.append(spec)
+                else:
+                    external.append(spec)
         f["imports"] = sorted(set(resolved))
         f["external"] = sorted(set(external))[:40]
+        f["unresolved"] = sorted(set(unresolved))[:40]
 
     # Symbol tables for call resolution.
     by_file_name = defaultdict(lambda: defaultdict(list))
@@ -3961,6 +3981,16 @@ def cmd_doctor(root, index, fix=False):
     if stats.get("error_samples"):
         for e in stats["error_samples"][:5]:
             print(f"    - {e}")
+    unresolved = defaultdict(list)
+    for rel, f in files.items():
+        for spec in f.get("unresolved", []):
+            unresolved[spec].append(rel)
+    if unresolved:
+        broken_files = {rel for rels in unresolved.values() for rel in rels}
+        total = sum(len(rels) for rels in unresolved.values())
+        print(f"  imports    : {total} unresolved relative import(s) in {len(broken_files)} file(s)")
+        for spec, rels in sorted(unresolved.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:5]:
+            print(f"    ? {spec}  ({len(rels)})")
     print(f"  changes    : {len(changed)} modified · {len(new)} new · {len(missing)} missing")
     if changed[:8]:
         for rel in changed[:8]:

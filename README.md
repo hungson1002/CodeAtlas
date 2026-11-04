@@ -110,7 +110,7 @@ On Windows use `python`; on macOS/Linux `python3` works too. Any command accepts
 | `path <a> <b>` | Shortest dependency path between files or symbols |
 | `pack <focus>` | Related files under a token budget |
 | `diagram` | Write Mermaid + interactive HTML; `--files`, `--top` |
-| `doctor` | Check freshness, coverage, parse errors; `--fix` rebuilds |
+| `doctor` | Check freshness, coverage, unresolved relative imports, parse errors; `--fix` rebuilds |
 | `stats` | Files, LOC, symbols, edges, languages, test command |
 
 Targets can be a file (`src/api.py`), a symbol (`AuthService.login`), or a

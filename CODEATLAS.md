@@ -1,7 +1,7 @@
 # CodeAtlas
 
-> `CodeAtlas` · 14 files · 7.6k LOC · 130 symbols
-> Generated 2026-11-03 15:06:06 · commit `3490768` · CodeAtlas v1.2.0
+> `CodeAtlas` · 14 files · 7.7k LOC · 133 symbols
+> Generated 2026-11-04 08:49:05 · commit `a726f87` · CodeAtlas v1.2.1
 > Languages: markdown 5 · config 3 · javascript 2 · python 2 · shell 2
 > Refresh: `python scripts/atlas.py update` · Query: `python scripts/atlas.py where <symbol>`
 
@@ -17,9 +17,9 @@
 |---|---:|---:|---|---|
 | `scripts` | 3 | 4.5k | — | main, build_index, read_text |
 | `bin` | 1 | 1.1k | — | — |
-| `.` | 5 | 629 | — | — |
+| `.` | 5 | 630 | — | — |
 | `references` | 3 | 605 | — | — |
-| `tests` | 2 | 728 | — | write, AtlasCLITest |
+| `tests` | 2 | 776 | — | write, AtlasCLITest |
 
 ## Hot files
 
@@ -27,12 +27,12 @@
 |---|---:|---:|
 | `scripts/atlas.py` | 4.2k | 0 |
 | `bin/code-atlas.js` | 1.1k | 0 |
-| `tests/test_atlas.py` | 527 | 0 |
+| `tests/test_atlas.py` | 575 | 0 |
 | `tests/test_cli.cjs` | 201 | 0 |
 | `scripts/install.ps1` | 157 | 0 |
 | `scripts/install.sh` | 152 | 0 |
 | `README.md` | 296 | 0 |
-| `SKILL.md` | 261 | 0 |
+| `SKILL.md` | 262 | 0 |
 
 ## Tests
 
