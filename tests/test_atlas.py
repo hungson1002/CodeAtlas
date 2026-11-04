@@ -167,6 +167,24 @@ class AtlasCLITest(unittest.TestCase):
             "\n"
             "export const legacy = gone;\n",
         )
+        # NodeNext-style imports reference the emitted .js name.
+        write(cls.root, "esm/b.ts", "export const b = 1;\n")
+        write(
+            cls.root,
+            "esm/a.ts",
+            "import { b } from './b.js';\n"
+            "\n"
+            "export const a = b;\n",
+        )
+        write(cls.root, "esm/real.js", "export const real = 1;\n")
+        write(cls.root, "esm/real.ts", "export const tsReal = 2;\n")
+        write(
+            cls.root,
+            "esm/prefer.ts",
+            "import { real } from './real.js';\n"
+            "\n"
+            "export const prefer = real;\n",
+        )
         write(
             cls.root,
             "tests/test_auth.py",
@@ -321,6 +339,32 @@ class AtlasCLITest(unittest.TestCase):
         legacy = self.index["files"]["web/legacy.ts"]
         self.assertEqual(legacy["external"], [])
         self.assertIn("../missing/gone", legacy["unresolved"])
+
+    def test_nodenext_js_specifier_maps_to_typescript(self) -> None:
+        a = self.index["files"]["esm/a.ts"]
+        self.assertEqual(a["unresolved"], [])
+        self.assertIn("esm/b.ts", a["imports"])
+        # A real .js file must win over the .ts fallback.
+        prefer = self.index["files"]["esm/prefer.ts"]
+        self.assertIn("esm/real.js", prefer["imports"])
+        self.assertNotIn("esm/real.ts", prefer["imports"])
+
+    def test_json_reports_truncated_totals(self) -> None:
+        where = json.loads(
+            self.atlas("where", "login", "--json", "--limit", "1").stdout
+        )
+        self.assertGreater(where["total"], len(where["matches"]))
+        self.assertEqual(len(where["matches"]), 1)
+
+        impact = json.loads(
+            self.atlas(
+                "impact", "services/auth.py", "--json", "--limit", "1"
+            ).stdout
+        )
+        self.assertGreaterEqual(impact["direct_count"], len(impact["direct_importers"]))
+        self.assertEqual(len(impact["direct_importers"]), 1)
+        self.assertGreaterEqual(impact["test_count"], len(impact["tests"]))
+        self.assertGreaterEqual(impact["incoming_count"], len(impact["incoming_calls"]))
 
     def test_impact_cross_directory_relative_import(self) -> None:
         data = json.loads(self.atlas("impact", "shared/canvas.ts", "--json").stdout)

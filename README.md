@@ -115,6 +115,8 @@ On Windows use `python`; on macOS/Linux `python3` works too. Any command accepts
 
 Targets can be a file (`src/api.py`), a symbol (`AuthService.login`), or a
 directory/module (`src/requests`). Add `--json` for machine-readable output.
+Lists are capped by `--limit`; JSON also reports `total` and `*_count` so
+truncation is visible.
 
 ## What the map contains
 

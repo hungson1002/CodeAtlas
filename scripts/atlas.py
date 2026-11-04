@@ -36,7 +36,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -250,6 +250,22 @@ LANG_EXTS = {
     "cpp": [".cpp", ".cc", ".cxx", ".hpp", ".hh"],
     "objc": [".m", ".mm"],
 }
+
+# NodeNext TypeScript imports the emitted path, e.g. "./b.js" for b.ts.
+JS_EXT_SWAPS = {
+    ".js": (".ts", ".tsx"),
+    ".jsx": (".tsx",),
+    ".mjs": (".mts",),
+    ".cjs": (".cts",),
+}
+
+
+def swapped_js_specs(spec, lang):
+    if lang not in ("typescript", "javascript"):
+        return []
+    stem, ext = posixpath.splitext(spec)
+    return [stem + alt for alt in JS_EXT_SWAPS.get(ext.lower(), ())]
+
 
 # ---------------------------------------------------------------------------
 # Small utilities
@@ -831,7 +847,7 @@ def expand_candidates(p, lang):
     return out
 
 
-def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_files=None):
+def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_files=None, _allow_swap=True):
     if not spec:
         return None
     spec = spec.strip().strip("'\"")
@@ -914,6 +930,17 @@ def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_f
     for e in LANG_EXTS.get(lang, []):
         if base + e in basename_index and len(basename_index[base + e]) == 1:
             return basename_index[base + e][0]
+
+    # NodeNext fallback: "./b.js" may be the emitted name for "./b.ts".
+    # Only tried after exact candidates so a real .js file still wins.
+    if _allow_swap:
+        for alt in swapped_js_specs(spec, lang):
+            target = resolve_spec(
+                root, from_rel, alt, files_set, basename_index, lang,
+                symbol_files, _allow_swap=False,
+            )
+            if target:
+                return target
     return None
 
 
@@ -3643,7 +3670,9 @@ def cmd_where(index, symbol, limit=20, kind=None, as_json=False):
             "doc": s.get("doc", ""),
         })
     if as_json:
-        print(json.dumps({"query": symbol, "matches": rows}, ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "query": symbol, "total": len(matches), "matches": rows,
+        }, ensure_ascii=False, indent=2))
         return 0
     out = [c(f"{len(matches)} match(es) for '{symbol}'", "36")]
     for r in rows:
@@ -3759,6 +3788,8 @@ def cmd_impact(index, target, depth=2, limit=30, as_json=False):
     if as_json:
         print(json.dumps({
             "target": label, "kind": kind, "risk": score, "level": level,
+            "direct_count": len(direct), "transitive_count": len(transitive),
+            "test_count": len(tests), "incoming_count": len(incoming),
             "direct_importers": direct[:limit], "transitive": transitive[:limit],
             "tests": tests[:limit],
             "incoming_calls": [{"symbol": s["id"], "caller": caller} for s, caller in incoming[:limit]],
