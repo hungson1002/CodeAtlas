@@ -736,6 +736,51 @@ class AtlasCLITest(unittest.TestCase):
             self.assertFalse(clean["staged"])
             self.assertIn("CODEATLAS.md", clean["skipped"])
 
+    def test_long_test_script_stays_compact(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-testcmd-") as tmp:
+            root = Path(tmp)
+            long_script = "node --test " + " ".join(
+                f"tests/case_{i}.test.js" for i in range(30)
+            )
+            write(
+                root,
+                "package.json",
+                json.dumps({"scripts": {"test": long_script}}),
+            )
+            write(root, "pnpm-lock.yaml", "lockfileVersion: '9'\n")
+            write(root, "app.ts", "export const app = 1;\n")
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+
+            def run(*args: str) -> subprocess.CompletedProcess:
+                proc = subprocess.run(
+                    [sys.executable, str(ATLAS), *args],
+                    cwd=str(root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
+                    timeout=120,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                return proc
+
+            run("build", "--no-git")
+            stats = json.loads(run("stats", "--json").stdout)
+            self.assertEqual(stats["test_command"], "pnpm test")
+            self.assertNotIn(
+                "case_29", (root / "CODEATLAS.md").read_text(encoding="utf-8")
+            )
+
+            write(
+                root,
+                ".codeatlas.json",
+                json.dumps({"test_command": "pnpm run test:unit"}),
+            )
+            run("build", "--full", "--no-git")
+            stats = json.loads(run("stats", "--json").stdout)
+            self.assertEqual(stats["test_command"], "pnpm run test:unit")
+
     def test_stats_json(self) -> None:
         data = json.loads(self.atlas("stats", "--json").stdout)
         self.assertGreater(data["files"], 0)

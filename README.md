@@ -152,7 +152,8 @@ which is the quickest way to spot a missing alias or workspace entry.
 - Modules with file/LOC counts, dependency weights, and key exported symbols.
 - Hot files ranked by PageRank over the import graph.
 - Test count and a detected test command (`pytest`, `npm test`, `go test`,
-  `cargo test`, etc.).
+  `cargo test`, etc.). Very long `package.json` test scripts are summarized as
+  `npm test`/`pnpm test`/`yarn test`/`bun test` so the map stays small.
 - Query recipes so a fresh agent knows what to run next.
 
 The interactive HTML map has two views:
@@ -264,6 +265,7 @@ script-blocking defaults.
   "module_depth": 2,
   "budget": 3500,
   "entrypoints": ["cmd/server/main.go"],
+  "test_command": "npm test",
   "git_churn": true,
   "map_file": "CODEATLAS.md"
 }
@@ -275,6 +277,10 @@ opts specific paths back in when a default or `.gitignore` rule would hide them,
 for example a hand-written `bin/cli.js`. It only overrides path exclusion:
 secret, binary, lockfile, and size checks still apply.
 `git_churn` counts recent commits per file and feeds the impact risk score.
+`test_command` overrides auto-detection. When a `package.json` test script is
+very long (for example a generated list of every test file), the map reports
+`npm test` (or `pnpm`/`yarn`/`bun test` based on the lockfile) instead of
+echoing the whole command, keeping the committed map small.
 
 ## Design
 

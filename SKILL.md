@@ -232,6 +232,7 @@ CodeAtlas is for orientation and impact scoping.
   "module_depth": 2,
   "budget": 3500,
   "entrypoints": ["cmd/server/main.go"],
+  "test_command": "npm test",
   "git_churn": true,
   "map_file": "CODEATLAS.md"
 }
@@ -240,6 +241,8 @@ CodeAtlas is for orientation and impact scoping.
 `.gitignore` patterns are folded in automatically. `include` opts paths back in
 when a default exclude or `.gitignore` rule hides them, such as `bin/` or
 `third_party/acme`; it does not bypass secret, binary, lockfile, or size checks.
+`test_command` overrides test-command detection; long `package.json` test
+scripts are summarized as `<package-manager> test` to keep the map compact.
 `module_depth` controls how directories are grouped in the map and module graph
 (2 = `src/requests`).
 

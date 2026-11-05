@@ -147,6 +147,11 @@ Writes go to `index.json.tmp` and are atomically replaced, so a crash leaves the
 previous index intact. `doctor` checks tracked file size/mtime, new/missing
 files, and git HEAD; it does not hash every file.
 
+The map keeps the test command compact. A `package.json` test script longer
+than 160 characters is rendered as `npm test` (or `pnpm`/`yarn`/`bun test`
+based on the lockfile), because generated test lists can otherwise dominate the
+map's token budget. `test_command` in `.codeatlas.json` overrides detection.
+
 ## Visual map
 
 `atlas.html` embeds the node/link payload and a deterministic canvas layout.

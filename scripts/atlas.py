@@ -36,7 +36,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -1317,13 +1317,35 @@ def git_churn(root, days=90):
     return dict(counter)
 
 
-def detect_test_command(root):
+TEST_COMMAND_MAX = 160
+
+
+def node_test_runner(root):
+    if (root / "pnpm-lock.yaml").exists():
+        return "pnpm"
+    if (root / "yarn.lock").exists():
+        return "yarn"
+    if (root / "bun.lockb").exists() or (root / "bun.lock").exists():
+        return "bun"
+    return "npm"
+
+
+def detect_test_command(root, cfg=None):
+    override = (cfg or {}).get("test_command")
+    if isinstance(override, str) and override.strip():
+        return override.strip()
     pkg = root / "package.json"
     if pkg.exists():
         try:
             data = json.loads(read_text(pkg))
             test = (data.get("scripts") or {}).get("test")
             if test:
+                test = test.strip()
+                # Long scripts are usually generated test lists. Echoing them
+                # into the map costs hundreds of tokens; the package script is
+                # the canonical, compact way to run the same command.
+                if len(test) > TEST_COMMAND_MAX:
+                    return f"{node_test_runner(root)} test"
                 return test
         except Exception:
             pass
@@ -1501,7 +1523,7 @@ def build_index(root, cfg, full=False, use_git=True, quiet=False):
     total_loc = sum(f.get("loc", 0) for f in files.values())
     total_symbols = sum(len(f.get("symbols", [])) for f in files.values())
     tests = sum(1 for rel in files if is_test_file(rel))
-    test_command = detect_test_command(root)
+    test_command = detect_test_command(root, cfg)
     if not test_command and tests:
         test_langs = {f["lang"] for rel, f in files.items() if is_test_file(rel)}
         if "python" in test_langs:
