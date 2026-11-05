@@ -93,16 +93,22 @@ to invent a call edge that sends an agent to the wrong file.
 Resolution is ordered and stops at the first unambiguous hit:
 
 1. Relative specs (`./x`, `../x`, Python `.x` / `..x`).
-2. Exact path or path + language extension.
-3. Directory index (`index.ts`, `__init__.py`, `mod.rs`).
-4. Python dotted module paths, including `src/` layouts.
-5. Java/Kotlin/C#/Scala dotted imports, with a unique-class fallback.
-6. Unique suffix match (`services.auth` → `app/services/auth.py`).
-7. Unique basename match.
+2. Project aliases: `tsconfig`/`jsconfig` `paths` and `baseUrl` (JSONC,
+   `extends`, and references are honoured), then workspace packages declared in
+   `package.json` or `pnpm-workspace.yaml` via their `exports`/`main`/`types`.
+3. Exact path or path + language extension.
+4. Directory index (`index.ts`, `__init__.py`, `mod.rs`).
+5. Python dotted module paths, including `src/` layouts.
+6. Java/Kotlin/C#/Scala dotted imports, with a unique-class fallback.
+7. Unique suffix match (`services.auth` → `app/services/auth.py`).
+8. Unique basename match.
 
-Ambiguous suffix and basename matches are rejected. Bare JS/TS specifiers are
-treated as npm packages, not local files: resolving `require('ejs')` to
-`test/acceptance/ejs.js` would create a false edge.
+NodeNext imports (`./b.js`) fall back to their TypeScript source (`b.ts`) only
+after exact candidates fail, so a real emitted `.js` file still wins. Ambiguous
+suffix and basename matches are rejected. Bare JS/TS specifiers that do not
+match a configured alias or workspace package are treated as npm packages, not
+local files: resolving `require('ejs')` to `test/acceptance/ejs.js` would create
+a false edge.
 
 Call resolution prefers, in order: same-file symbol, `from X import y` mapping,
 module alias (`import * as api`), then a globally unique name. Attribute calls
@@ -178,7 +184,9 @@ frames the graph after layout.
 - Regex parsers can miss unusual formatting; Python is the reliable tier.
 - PageRank and risk favor connected code; a critical leaf utility can look
   unimportant.
-- Monorepos with several roots need per-root indexes or nested config.
+- Monorepos with several roots need per-root indexes or nested config. Import
+  aliases and workspace packages are resolved from the repository, but each
+  root still gets its own `index.json`.
 - Generated/vendored code is excluded by default; if it matters, add an
   explicit include or a scoped config.
 - The HTML map is for exploration, not for editing; it has no file contents.

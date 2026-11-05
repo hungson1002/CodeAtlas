@@ -566,6 +566,176 @@ class AtlasCLITest(unittest.TestCase):
             self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
             self.assertIn("FRESH", doctor.stdout)
 
+    def test_tsconfig_paths_and_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-paths-") as tmp:
+            root = Path(tmp)
+            write(
+                root,
+                "package.json",
+                json.dumps({"name": "mono", "workspaces": ["packages/*"]}),
+            )
+            write(
+                root,
+                "tsconfig.json",
+                '{\n'
+                "  // comments and trailing commas are valid in tsconfig\n"
+                '  "compilerOptions": {\n'
+                '    "baseUrl": ".",\n'
+                '    "paths": {\n'
+                '      "@shared/*": ["shared/*"],\n'
+                '      "#internal/*": ["shared/*"],\n'
+                '      "~lib": ["lib/index.ts"]\n'
+                "    },\n"
+                "  },\n"
+                "}\n",
+            )
+            write(root, "shared/util.ts", "export const util = 1;\n")
+            write(root, "shared/format.ts", "export const format = 3;\n")
+            write(root, "lib/index.ts", "export const lib = 2;\n")
+            write(
+                root,
+                "packages/ui/package.json",
+                json.dumps({"name": "@acme/ui", "main": "src/index.ts"}),
+            )
+            write(
+                root,
+                "packages/ui/tsconfig.json",
+                '{"extends": "../../tsconfig.json"}',
+            )
+            write(root, "packages/ui/src/index.ts", "export const Button = 1;\n")
+            write(root, "packages/ui/src/button.ts", "export const button = 2;\n")
+            write(
+                root,
+                "web/app.ts",
+                "import { util } from '@shared/util';\n"
+                "import { format } from '#internal/format';\n"
+                "import { lib } from '~lib';\n"
+                "import { Button } from '@acme/ui';\n"
+                "import { button } from '@acme/ui/button';\n"
+                "import React from 'react';\n"
+                "export const app = [util, format, lib, Button, button, React];\n",
+            )
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(ATLAS), "build", "--no-git"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                timeout=120,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            index = json.loads(
+                (root / ".code-atlas" / "index.json").read_text(encoding="utf-8")
+            )
+            app = index["files"]["web/app.ts"]
+            self.assertEqual(app["unresolved"], [])
+            self.assertEqual(app["external"], ["react"])
+            self.assertEqual(
+                set(app["imports"]),
+                {
+                    "lib/index.ts",
+                    "shared/util.ts",
+                    "shared/format.ts",
+                    "packages/ui/src/index.ts",
+                    "packages/ui/src/button.ts",
+                },
+            )
+
+    def test_impact_changed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="code-atlas-changed-") as tmp:
+            root = Path(tmp)
+            write(root, "lib/core.py", "def core():\n    return 1\n")
+            write(
+                root,
+                "app/main.py",
+                "from lib.core import core\n\ndef main():\n    return core()\n",
+            )
+            write(
+                root,
+                "tests/test_core.py",
+                "from lib.core import core\n\ndef test_core():\n    assert core()\n",
+            )
+            write(
+                root,
+                "lib/service.py",
+                "from lib.core import core\n\ndef service():\n    return core()\n",
+            )
+            write(
+                root,
+                "app/feature.py",
+                "from lib.service import service\n\ndef feature():\n    return service()\n",
+            )
+            write(
+                root,
+                "tests/test_feature.py",
+                "from app.feature import feature\n\ndef test_feature():\n    assert feature()\n",
+            )
+            env = dict(os.environ, NO_COLOR="1", PYTHONIOENCODING="utf-8")
+
+            def run(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+                proc = subprocess.run(
+                    [sys.executable, str(ATLAS), *args],
+                    cwd=str(root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
+                    timeout=120,
+                )
+                if check:
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                return proc
+
+            def git_run(*args: str) -> None:
+                subprocess.run(
+                    [
+                        "git", "-c", "user.name=Atlas Test",
+                        "-c", "user.email=atlas@example.com", *args,
+                    ],
+                    cwd=str(root),
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            git_run("init", "-q")
+            git_run("add", ".")
+            git_run("commit", "-q", "-m", "initial")
+            run("build")
+
+            core = root / "lib/core.py"
+            core.write_text(
+                core.read_text(encoding="utf-8") + "\ndef extra():\n    return 2\n",
+                encoding="utf-8",
+            )
+            data = json.loads(run("impact", "--changed", "--json").stdout)
+            self.assertEqual(data["changed"], ["lib/core.py"])
+            self.assertIn("app/main.py", data["direct"])
+            self.assertIn("tests/test_core.py", data["direct"])
+            self.assertIn("lib/service.py", data["direct"])
+            self.assertIn("app/feature.py", data["transitive"])
+            self.assertIn("tests/test_feature.py", data["tests"])
+            self.assertIn("tests/test_core.py", data["tests"])
+
+            git_run("add", "lib/core.py")
+            staged = json.loads(
+                run("impact", "--changed", "--staged", "--json").stdout
+            )
+            self.assertEqual(staged["changed"], ["lib/core.py"])
+            self.assertTrue(staged["staged"])
+
+            git_run("commit", "-q", "-m", "update core")
+            clean = json.loads(run("impact", "--changed", "--json").stdout)
+            self.assertEqual(clean["changed"], [])
+            self.assertEqual(clean["direct_count"], 0)
+            self.assertEqual(clean["test_count"], 0)
+            self.assertFalse(clean["staged"])
+            self.assertIn("CODEATLAS.md", clean["skipped"])
+
     def test_stats_json(self) -> None:
         data = json.loads(self.atlas("stats", "--json").stdout)
         self.assertGreater(data["files"], 0)

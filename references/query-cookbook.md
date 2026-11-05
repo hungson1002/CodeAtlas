@@ -38,6 +38,9 @@ the signature is not enough.
 atlas impact src/requests/api.py
 atlas impact AuthService.login
 atlas impact src/requests --depth 3
+atlas impact --changed
+atlas impact --changed --staged
+atlas impact --changed --base origin/main
 ```
 
 Read:
@@ -111,12 +114,17 @@ atlas impact <symbol>                # 2. importers, callers, tests
 atlas pack <symbol> --budget 10000   # 3. only the relevant code
 # edit
 atlas update                         # 4. refresh the map
-atlas doctor                         # 5. confirm FRESH
-# run focused tests from step 2, then the subsystem suite
+atlas impact --changed               # 5. tests for exactly what changed
+atlas doctor                         # 6. confirm FRESH
+# run focused tests from step 5, then the subsystem suite
 ```
 
-Do not skip step 5 after adding/removing files; `doctor` catches new and missing
-files that a mtime-only refresh might miss.
+`impact --changed` reads the git working tree, including untracked files. New
+files must be indexed by `update` first; any path that is not in the index is
+reported as skipped instead of guessed.
+
+Do not skip the final `doctor` after adding/removing files; it catches new and
+missing files that a mtime-only refresh might miss.
 
 ## 8. JSON and chaining
 
@@ -147,6 +155,11 @@ atlas pack packages/billing --budget 10000
 atlas impact packages/billing/src/invoice.ts
 ```
 
+Workspace package names and `tsconfig` `paths`/`baseUrl` are resolved from the
+repository, so `import { Invoice } from '@acme/billing'` points at the package
+source rather than staying unresolved. If a package is new, rebuild; `doctor`
+lists any relative import that still has no indexed target.
+
 If one package has a very different tree, add a nested `.codeatlas.json` and run
 from that package directory. One index per root; do not share an index across
 branches.
@@ -176,6 +189,7 @@ Common causes:
 | Orientation | `map --budget 1500` | small |
 | Symbol lookup | `where X` | tiny |
 | Change scope | `impact X` | small |
+| Current diff scope | `impact --changed` | small |
 | Context for edit | `pack X --budget 6000` | medium |
 | Architecture | `diagram` + map | file output |
 | Health | `doctor` | tiny |

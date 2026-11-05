@@ -86,6 +86,7 @@ it; do not fall back to `ls -R`.
 |---|---|---|
 | Where is symbol X? | `atlas where X` | ~20–200 tokens |
 | What breaks if I change X? | `atlas impact X` | ~50–300 tokens |
+| What did my working tree affect? | `atlas impact --changed` | ~50–300 tokens |
 | Which tests cover X? | `atlas impact X` (Tests section) | included |
 | How does A reach B? | `atlas path A B` | ~20–100 tokens |
 | Give me the files around X | `atlas pack X --budget 8000` | budgeted |
@@ -105,12 +106,19 @@ is known. Keep the loop small: **map → where → impact → pack → read → 
 
 ```bash
 python "<skill-dir>/scripts/atlas.py" update
+python "<skill-dir>/scripts/atlas.py" impact --changed
 python "<skill-dir>/scripts/atlas.py" doctor
 ```
 
-Run the focused tests reported by `impact`, then the subsystem suite. Do not
-claim a change is safe because the index rebuilt; the index is a map, not a
-test runner.
+`impact --changed` scopes the existing index to git's working tree (staged,
+unstaged, and untracked files) and reports affected importers plus tests. New
+files must be indexed by `update` first; paths outside the index are listed as
+skipped. Use `--staged` for only the index, or `--base <rev>` to compare with a
+branch.
+
+Run the focused tests reported by `impact` (or `impact --changed`), then the
+subsystem suite. Do not claim a change is safe because the index rebuilt; the
+index is a map, not a test runner.
 
 ## Command reference
 
@@ -121,6 +129,7 @@ atlas update               incremental refresh (preferred after edits)
 atlas map [--budget N]     print the compact map
 atlas where <symbol>       path:line, kind, signature, callers/callees
 atlas impact <target>      reverse deps, risk score, incoming calls, tests
+atlas impact --changed     reverse deps + tests for git-changed files
 atlas path <a> <b>         shortest dependency path
 atlas pack <focus>         related files under a token budget
 atlas diagram [--files]    write Mermaid + interactive HTML
@@ -129,7 +138,9 @@ atlas stats                index statistics
 ```
 
 Common flags: `-C <root>` target another repository, `--json` machine output,
-`--no-color`, `--limit`, `--depth`, `--top`, `--budget`.
+`--no-color`, `--limit`, `--depth`, `--top`, `--budget`. For
+`impact --changed`, add `--staged` to read only the index or `--base <rev>` to
+compare against a branch.
 
 Exit codes: `0` success/fresh, `1` no match or stale index, `2` usage/error.
 Treat `where` returning no match as a signal to try `rg -n` for dynamic or
@@ -198,6 +209,12 @@ Docs and config files (`md`, `json`, `yaml`, `toml`, `sql`) are indexed as
 nodes so documentation and configuration show up in the graph, but they do not
 produce call edges.
 
+TypeScript/JavaScript imports follow the project's own config: `tsconfig` or
+`jsconfig` `paths`, `baseUrl`, `extends`, and references, plus workspace
+packages declared in `package.json` or `pnpm-workspace.yaml`. NodeNext `.js`
+specifiers map to their `.ts` source when no emitted file exists. No package
+manager is executed during a build.
+
 Known limits: dynamic imports, reflection, dependency injection, decorators
 that rewrite functions, generated code, and macros are best-effort. For precise
 rename/reference operations, use an LSP or a semantic tool if available;
@@ -231,6 +248,9 @@ when a default exclude or `.gitignore` rule hides them, such as `bin/` or
 - Run one index per repository root. `-C <path>` makes the target explicit.
 - For a monorepo, build at the root; use `pack <package-path>` and
   `impact <package-path>` to stay inside one package.
+- `tsconfig`/`jsconfig` `paths`, `baseUrl`, `extends`, and project references
+  are applied automatically, as are `package.json` workspaces and
+  `pnpm-workspace.yaml` packages. Check `doctor` if a new alias stays unresolved.
 - If a package has its own tooling and a very large unrelated tree, create a
   nested `.codeatlas.json` and run CodeAtlas from that package directory.
 - Do not share one `index.json` between branches. Rebuild after checkout if
@@ -253,7 +273,7 @@ when a default exclude or `.gitignore` rule hides them, such as `bin/` or
 | `STALE` after checkout | `update`; if parse errors appear, `build --full` |
 | symbol not found | try `where` with a shorter name; then `rg -n` |
 | wrong/ambiguous edges | inspect `impact`; rely on direct importers, not just risk |
-| unresolved imports | `doctor` lists relative imports that resolve to no indexed file |
+| unresolved imports | `doctor` lists relative imports that resolve to no indexed file; check `tsconfig` `paths`/`baseUrl`, workspace package names, and excludes |
 | parse errors | fix syntax or exclude generated files; `stats` shows samples |
 | HTML blank | open via a local server or `file://` with `#files`; check browser console |
 | huge repo / slow scan | add excludes, lower `max_file_kb`, scope with `-C` |

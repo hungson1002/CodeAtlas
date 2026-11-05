@@ -87,6 +87,7 @@ code-atlas init
 code-atlas map
 code-atlas where Session
 code-atlas impact src/requests/api.py
+code-atlas impact --changed
 code-atlas pack auth --budget 8000
 code-atlas diagram --open
 
@@ -107,6 +108,7 @@ On Windows use `python`; on macOS/Linux `python3` works too. Any command accepts
 | `map` | Print the compact map; `--budget`, `--write` |
 | `where <symbol>` | Locate declarations with kind, signature, call counts |
 | `impact <target>` | Reverse dependencies, risk score, incoming calls, tests |
+| `impact --changed` | Blast radius and tests for files changed in the working tree; `--staged`, `--base <rev>` |
 | `path <a> <b>` | Shortest dependency path between files or symbols |
 | `pack <focus>` | Related files under a token budget |
 | `diagram` | Write Mermaid + interactive HTML; `--files`, `--top` |
@@ -117,6 +119,31 @@ Targets can be a file (`src/api.py`), a symbol (`AuthService.login`), or a
 directory/module (`src/requests`). Add `--json` for machine-readable output.
 Lists are capped by `--limit`; JSON also reports `total` and `*_count` so
 truncation is visible.
+
+`impact --changed` reads the git working tree (staged, unstaged, and untracked
+files), expands importers up to `--depth`, and reports the tests to run. Use
+`--staged` to limit it to the index, or `--base <rev>` to compare against a
+branch. Changed paths outside the index are listed as skipped rather than
+guessed. Run `update` first when files were added or removed.
+
+## Project resolution
+
+Import edges are only useful if they point at real files. In addition to
+relative imports, CodeAtlas reads the project's own resolution config:
+
+- `tsconfig.json` / `jsconfig.json` — JSONC comments and trailing commas,
+  `extends`, project `references`, `baseUrl`, and `paths` aliases such as
+  `@shared/*`. Paths are resolved relative to the config that declares them.
+- NodeNext-style imports — `./b.js` resolves to `b.ts` when no emitted `.js`
+  file exists. A real `.js` file still wins.
+- Workspace packages — `package.json` `workspaces` and `pnpm-workspace.yaml`
+  patterns; each package's `exports`, `types`, `module`, and `main` fields are
+  used to map `@scope/pkg/sub` to its source file.
+- Python and JVM dotted imports, directory indexes, and unique suffix matches.
+
+Everything is read from the repository; no package manager or network access is
+involved. `doctor` still lists relative imports that resolve to no indexed file,
+which is the quickest way to spot a missing alias or workspace entry.
 
 ## What the map contains
 
@@ -287,10 +314,11 @@ npm test                                  # both
 ```
 
 The engine suite builds temporary fixtures and exercises the CLI end to end:
-indexing, secret exclusion, relative imports, TS class methods, `where`,
-`impact`, `path`, `pack`, `diagram`, and stale → update → fresh recovery. The
-Node suite covers install, update, link, project scope, status, uninstall, and
-Python passthrough.
+indexing, secret exclusion, relative imports, NodeNext `.js` mapping, tsconfig
+`paths`/`baseUrl` and workspace packages, TS class methods, `where`, `impact`
+(including `--changed`), `path`, `pack`, `diagram`, and stale → update → fresh
+recovery. The Node suite covers install, update, link, project scope, status,
+uninstall, and Python passthrough.
 
 ## License
 

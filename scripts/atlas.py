@@ -36,7 +36,7 @@ import webbrowser
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-VERSION = "1.2.2"
+VERSION = "1.3.0"
 PARSER_VERSION = 1
 INDEX_DIR = ".code-atlas"
 INDEX_NAME = "index.json"
@@ -847,11 +847,344 @@ def expand_candidates(p, lang):
     return out
 
 
-def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_files=None, _allow_swap=True):
+# ---------------------------------------------------------------------------
+# Project resolution: tsconfig paths, baseUrl, workspace packages
+# ---------------------------------------------------------------------------
+
+def strip_jsonc(text):
+    out = []
+    i = 0
+    n = len(text)
+    in_string = False
+    escaped = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return strip_trailing_commas("".join(out))
+
+
+def strip_trailing_commas(text):
+    out = []
+    i = 0
+    n = len(text)
+    in_string = False
+    escaped = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def load_jsonc(path):
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(strip_jsonc(read_text(path)))
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _extends_file(root, base_dir, spec):
+    if spec.startswith((".", "/", "\\")):
+        p = base_dir / spec
+    else:
+        p = Path(root) / "node_modules" / spec
+    candidates = [p, Path(str(p) + ".json")]
+    if not p.suffix:
+        candidates.append(p / "tsconfig.json")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _export_target(value):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("types", "import", "module", "default", "require"):
+            if key in value:
+                found = _export_target(value[key])
+                if found:
+                    return found
+    return None
+
+
+def _package_entry(pkg, subpath):
+    exports = pkg.get("exports")
+    key = "." if not subpath else "./" + subpath
+    if isinstance(exports, (str, dict)):
+        if isinstance(exports, dict):
+            if key in exports:
+                found = _export_target(exports[key])
+                if found:
+                    return found
+            for pattern, value in exports.items():
+                if not isinstance(pattern, str) or "*" not in pattern:
+                    continue
+                prefix, suffix = pattern.split("*", 1)
+                if key.startswith(prefix) and key.endswith(suffix):
+                    star = key[len(prefix):len(key) - len(suffix) if suffix else None]
+                    found = _export_target(value)
+                    if found:
+                        return found.replace("*", star, 1)
+        elif not subpath:
+            found = _export_target(exports)
+            if found:
+                return found
+    if not subpath:
+        for field in ("types", "typings", "module", "main"):
+            value = pkg.get(field)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def load_workspace_packages(root):
+    root = Path(root)
+    root_pkg = load_jsonc(root / "package.json")
+    patterns = []
+    workspaces = root_pkg.get("workspaces")
+    if isinstance(workspaces, list):
+        patterns = [p for p in workspaces if isinstance(p, str)]
+    elif isinstance(workspaces, dict):
+        patterns = [p for p in workspaces.get("packages") or [] if isinstance(p, str)]
+    pnpm = root / "pnpm-workspace.yaml"
+    if pnpm.is_file():
+        in_packages = False
+        for line in read_text(pnpm).splitlines():
+            stripped = line.strip()
+            if stripped.startswith("packages:"):
+                in_packages = True
+                continue
+            if not in_packages:
+                continue
+            if stripped.startswith("- "):
+                value = stripped[2:].strip().strip("'\"")
+                if value:
+                    patterns.append(value)
+            elif stripped and not stripped.startswith("#"):
+                break
+    packages = {}
+    root_resolved = root.resolve()
+    for pattern in patterns:
+        if not pattern or pattern.startswith("!"):
+            continue
+        for directory in root.glob(pattern):
+            if not directory.is_dir():
+                continue
+            pkg = load_jsonc(directory / "package.json")
+            name = pkg.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            try:
+                rel = directory.resolve().relative_to(root_resolved).as_posix()
+            except ValueError:
+                continue
+            packages[name] = {"dir": rel, "pkg": pkg}
+    return packages
+
+
+def load_resolution_context(root):
+    root = Path(root)
+    packages = load_workspace_packages(root)
+    extra_dirs = [root / info["dir"] for info in packages.values()]
+    seen = {}
+
+    def effective(path):
+        try:
+            path = path.resolve()
+        except OSError:
+            return {}
+        if path in seen:
+            return seen[path]
+        if not path.is_file():
+            return {}
+        data = load_jsonc(path)
+        result = {"opts": {}, "base_dir": path.parent, "paths_dir": None}
+        extends = data.get("extends")
+        if isinstance(extends, str):
+            parent = _extends_file(root, path.parent, extends)
+            if parent:
+                parent_result = effective(parent)
+                result["opts"].update(parent_result.get("opts") or {})
+                result["base_dir"] = parent_result.get("base_dir") or path.parent
+                result["paths_dir"] = parent_result.get("paths_dir")
+        compiler = data.get("compilerOptions") or {}
+        if "baseUrl" in compiler:
+            result["base_dir"] = path.parent
+        if "paths" in compiler:
+            result["paths_dir"] = path.parent
+        result["opts"].update(compiler)
+        seen[path] = result
+        for ref in data.get("references") or []:
+            if not isinstance(ref, dict):
+                continue
+            target = ref.get("path")
+            if not isinstance(target, str) or not target:
+                continue
+            ref_path = path.parent / target
+            if ref_path.is_dir():
+                ref_path = ref_path / "tsconfig.json"
+            elif not ref_path.suffix:
+                ref_path = Path(str(ref_path) + ".json")
+            effective(ref_path)
+        return result
+
+    for name in ("tsconfig.json", "jsconfig.json"):
+        effective(root / name)
+    for directory in extra_dirs:
+        effective(directory / "tsconfig.json")
+
+    root_resolved = root.resolve()
+    configs = []
+    for path, result in seen.items():
+        opts = result.get("opts") or {}
+        paths = opts.get("paths") or {}
+        base_url = opts.get("baseUrl")
+        if not paths and not base_url:
+            continue
+        if isinstance(base_url, str) and base_url:
+            origin = result.get("base_dir") or path.parent
+            base_abs = origin / base_url
+        else:
+            origin = result.get("paths_dir") or path.parent
+            base_abs = origin
+        try:
+            rel_dir = path.parent.resolve().relative_to(root_resolved).as_posix()
+            base_rel = base_abs.resolve().relative_to(root_resolved).as_posix()
+        except ValueError:
+            continue
+        if rel_dir == ".":
+            rel_dir = ""
+        configs.append({
+            "dir": rel_dir,
+            "base": base_rel if base_rel != "." else ".",
+            "paths": paths,
+        })
+
+    # One effective config per directory; prefer an entry that actually has
+    # paths when a sibling config (for example tsconfig.node.json) has none.
+    dedup = {}
+    for entry in configs:
+        current = dedup.get(entry["dir"])
+        if current is None or entry["paths"] or not current["paths"]:
+            dedup[entry["dir"]] = entry
+    configs = sorted(dedup.values(), key=lambda entry: len(entry["dir"]), reverse=True)
+    return {"configs": configs, "packages": packages}
+
+
+
+def resolution_candidates(ctx, from_rel, spec):
+    if not ctx:
+        return []
+    spec = spec.replace("\\", "/")
+    from_dir = posixpath.dirname(from_rel)
+    out = []
+    for entry in ctx["configs"]:
+        directory = entry["dir"]
+        if directory and not (from_dir == directory or from_dir.startswith(directory + "/")):
+            continue
+        base = entry["base"]
+        for pattern, targets in (entry["paths"] or {}).items():
+            if not isinstance(pattern, str) or not isinstance(targets, list):
+                continue
+            if "*" in pattern:
+                prefix, suffix = pattern.split("*", 1)
+                if (spec.startswith(prefix) and spec.endswith(suffix)
+                        and len(spec) >= len(prefix) + len(suffix)):
+                    star = spec[len(prefix):len(spec) - len(suffix) if suffix else None]
+                    for target in targets:
+                        if isinstance(target, str):
+                            mapped = target.replace("*", star, 1)
+                            out.append(posixpath.normpath(posixpath.join(base, mapped)))
+            elif pattern == spec:
+                for target in targets:
+                    if isinstance(target, str):
+                        out.append(posixpath.normpath(posixpath.join(base, target)))
+        out.append(posixpath.normpath(posixpath.join(base, spec)))
+        break
+
+    parts = spec.split("/")
+    if spec.startswith("@") and len(parts) >= 2:
+        name, sub = "/".join(parts[:2]), "/".join(parts[2:])
+    else:
+        name, sub = parts[0], "/".join(parts[1:])
+    package = ctx["packages"].get(name)
+    if package:
+        base = package["dir"]
+        entry = _package_entry(package["pkg"], sub)
+        if entry:
+            out.append(posixpath.normpath(posixpath.join(base, entry)))
+        if sub:
+            out.append(posixpath.normpath(posixpath.join(base, "src", sub)))
+            out.append(posixpath.normpath(posixpath.join(base, sub)))
+        else:
+            out.append(posixpath.normpath(posixpath.join(base, "src", "index")))
+            out.append(posixpath.normpath(posixpath.join(base, "index")))
+    return list(dict.fromkeys(out))
+
+
+
+def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_files=None, ctx=None, _allow_swap=True):
     if not spec:
         return None
     spec = spec.strip().strip("'\"")
-    spec = spec.split("?")[0].split("#")[0]
+    spec = spec.split("?")[0]
+    # A leading "#" is a package-import specifier (or a tsconfig alias), not a
+    # URL fragment. Only strip a fragment that follows a path.
+    if "#" in spec and not spec.startswith("#"):
+        spec = spec.split("#")[0]
     if not spec or spec.startswith("node:"):
         return None
     if spec.startswith("."):
@@ -876,6 +1209,9 @@ def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_f
     else:
         raw = spec.replace("\\", "/")
         cands = []
+        if lang in ("typescript", "javascript"):
+            for resolved in resolution_candidates(ctx, from_rel, raw):
+                cands += expand_candidates(Path(resolved), lang)
         if raw.startswith("@/") or raw.startswith("~/"):
             cands += expand_candidates(Path("src") / raw[2:], lang)
             cands += expand_candidates(Path(raw[2:]), lang)
@@ -937,7 +1273,7 @@ def resolve_spec(root, from_rel, spec, files_set, basename_index, lang, symbol_f
         for alt in swapped_js_specs(spec, lang):
             target = resolve_spec(
                 root, from_rel, alt, files_set, basename_index, lang,
-                symbol_files, _allow_swap=False,
+                symbol_files, ctx, _allow_swap=False,
             )
             if target:
                 return target
@@ -1091,6 +1427,7 @@ def build_index(root, cfg, full=False, use_git=True, quiet=False):
         for s in f.get("symbols", []):
             symbol_files[s["name"]].append(rel)
     symbol_files = {k: list(dict.fromkeys(v)) for k, v in symbol_files.items()}
+    resolver = load_resolution_context(root)
 
     for rel, f in files.items():
         resolved = []
@@ -1098,7 +1435,7 @@ def build_index(root, cfg, full=False, use_git=True, quiet=False):
         unresolved = []
         for imp in f.get("imports_raw", []):
             spec = imp.get("spec", "")
-            target = resolve_spec(root, rel, spec, files_set, basename_index, f["lang"], symbol_files)
+            target = resolve_spec(root, rel, spec, files_set, basename_index, f["lang"], symbol_files, resolver)
             if target and target != rel:
                 resolved.append(target)
             elif not target:
@@ -3830,6 +4167,112 @@ def cmd_impact(index, target, depth=2, limit=30, as_json=False):
     return 0
 
 
+def git_changed_files(root, staged=False, base=None):
+    paths = set()
+
+    def add(output):
+        for item in output.split("\0"):
+            if item:
+                paths.add(item)
+
+    if base:
+        add(git(root, "diff", "--name-only", "-z", "--diff-filter=ACMR", f"{base}...HEAD"))
+        if not staged:
+            add(git(root, "diff", "--name-only", "-z", "--diff-filter=ACMR"))
+            add(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
+    elif staged:
+        add(git(root, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"))
+    else:
+        add(git(root, "diff", "--name-only", "-z", "--diff-filter=ACMR"))
+        add(git(root, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"))
+        add(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
+    return sorted(paths)
+
+
+def cmd_changed(index, root, depth=2, limit=30, as_json=False, staged=False, base=None):
+    files = index["files"]
+    discovered = git_changed_files(root, staged=staged, base=base)
+    changed = [rel for rel in discovered if rel in files]
+    if not changed:
+        if as_json:
+            print(json.dumps({
+                "changed": [], "skipped": [rel for rel in discovered if rel not in files],
+                "staged": bool(staged), "base": base, "depth": depth,
+                "direct": [], "transitive": [], "tests": [],
+                "direct_count": 0, "transitive_count": 0, "test_count": 0,
+            }, ensure_ascii=False, indent=2))
+        else:
+            print("No indexed files changed.")
+        return 0
+
+    importers = importers_map(index)
+    affected = {}
+    test_levels = {}
+    for rel in changed:
+        for key, level in reverse_levels(importers, rel, depth).items():
+            if key == rel:
+                continue
+            affected[key] = min(affected.get(key, 99), level)
+        for key, level in reverse_levels(importers, rel, max(depth, 4)).items():
+            test_levels[key] = min(test_levels.get(key, 99), level)
+
+    direct = sorted(
+        (rel for rel, level in affected.items() if level == 1),
+        key=lambda rel: (is_test_file(rel), -index.get("pagerank", {}).get(rel, 0)),
+    )
+    transitive = sorted(rel for rel, level in affected.items() if level >= 2)
+    tests = {rel for rel in test_levels if is_test_file(rel)}
+    stems = {
+        Path(rel).stem.lower().replace("test_", "").replace("_test", "")
+        for rel in changed
+    }
+    for rel in files:
+        if is_test_file(rel) and any(stem and stem in rel.lower() for stem in stems):
+            tests.add(rel)
+    tests = sorted(tests)
+    skipped = [rel for rel in discovered if rel not in files]
+
+    if as_json:
+        print(json.dumps({
+            "changed": changed,
+            "skipped": skipped,
+            "staged": bool(staged),
+            "base": base,
+            "depth": depth,
+            "direct_count": len(direct),
+            "transitive_count": len(transitive),
+            "test_count": len(tests),
+            "direct": direct[:limit],
+            "transitive": transitive[:limit],
+            "tests": tests[:limit],
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    out = [c("Changed files", "36")]
+    for rel in changed:
+        out.append(f"  {rel}")
+    if skipped:
+        out.append(c(f"  ({len(skipped)} changed path(s) not indexed)", "90"))
+    out.append(c(f"Affected within {depth} hop(s): {len(direct)} direct, {len(transitive)} transitive", "36"))
+    for rel in direct[:limit]:
+        out.append(f"  {rel}")
+    if len(direct) > limit:
+        out.append(c(f"  … {len(direct) - limit} more direct", "90"))
+    if transitive:
+        for rel in transitive[:limit]:
+            out.append(f"  {rel}  {c('(depth %d)' % affected[rel], '90')}")
+        if len(transitive) > limit:
+            out.append(c(f"  … {len(transitive) - limit} more transitive", "90"))
+    if tests:
+        out.append(c(f"Tests ({len(tests)})", "36"))
+        for rel in tests[:limit]:
+            out.append(f"  {rel}")
+        if len(tests) > limit:
+            out.append(c(f"  … {len(tests) - limit} more", "90"))
+    print("\n".join(out))
+    return 0
+
+
 def cmd_path(index, a, b, max_depth=8, as_json=False):
     files = index["files"]
     ka, va, _ = resolve_target(index, a)
@@ -4097,9 +4540,12 @@ def main(argv=None):
 
     p = sub.add_parser("impact", help="blast radius for a file, symbol, or module")
     add_common(p)
-    p.add_argument("target")
+    p.add_argument("target", nargs="?", help="file, symbol, or module")
     p.add_argument("--depth", type=int, default=2)
     p.add_argument("--limit", type=int, default=30)
+    p.add_argument("--changed", action="store_true", help="scope to git-changed files")
+    p.add_argument("--staged", action="store_true", help="with --changed, only staged files")
+    p.add_argument("--base", default=None, help="with --changed, diff against this revision")
 
     p = sub.add_parser("path", help="shortest dependency path between two files/symbols")
     add_common(p)
@@ -4192,6 +4638,14 @@ def main(argv=None):
         return cmd_where(index, args.symbol, args.limit, args.kind, args.json)
 
     if args.cmd == "impact":
+        if args.changed:
+            return cmd_changed(
+                index, root, args.depth, args.limit, args.json,
+                staged=args.staged, base=args.base,
+            )
+        if not args.target:
+            print("impact needs a target, or use --changed.", file=sys.stderr)
+            return 2
         return cmd_impact(index, args.target, args.depth, args.limit, args.json)
 
     if args.cmd == "path":
